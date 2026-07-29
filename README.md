@@ -7,8 +7,14 @@ gateway whose sending nodes are ordinary Android phones.
 
 **Early development — not yet functional.**
 
-This repository currently holds the generated protobuf contract and nothing else. The
+`gatewayd` builds and runs, but serves nothing yet: it starts, logs that no components are
+wired, and shuts down cleanly on a signal. What exists so far is the generated protobuf
+contract, the database schema, the persistence interfaces, and that entry point. The
 control plane itself is being written one atomic commit at a time.
+
+```sh
+go run ./cmd/gatewayd
+```
 
 ## What this is
 
