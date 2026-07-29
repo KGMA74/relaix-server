@@ -46,4 +46,4 @@ change.
 
 ## License
 
-Not yet chosen.
+[Apache License 2.0](LICENSE), same as the rest of Relaix.
