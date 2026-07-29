@@ -1,0 +1,18 @@
+# Build artifacts
+bin/
+dist/
+*.exe
+*.exe~
+*.test
+*.out
+coverage.txt
+
+# Generated protobuf code is committed on purpose (see the monorepo's
+# buf.gen.yaml), so gen/ is deliberately NOT ignored.
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
