@@ -221,6 +221,10 @@ func (d deviceStore) Create(ctx context.Context, in *store.Device, tokenHash str
 	}
 	cp.UpdatedAt = cp.CreatedAt
 	cp.Health = copyHealth(in.Health)
+	// A newly enrolled device is enabled, whatever the caller passed. The
+	// column is NOT NULL DEFAULT true and the insert sets it explicitly, so the
+	// fake must not let a zero-valued struct create a disabled device.
+	cp.Enabled = true
 
 	d.s.devices[cp.ID] = &cp
 	d.s.tokenToID[tokenHash] = cp.ID
@@ -449,7 +453,12 @@ func (j jobStore) Complete(ctx context.Context, id uuid.UUID, r store.JobResult)
 	job.Status = r.Status
 	job.ErrorCode = r.ErrorCode
 	job.ErrorMessage = r.ErrorMessage
-	job.PartsSent = r.PartsSent
+	// A late DELIVERED carries no part count, so a plain assignment would wipe
+	// the one the SENT result reported — and that number is what callers
+	// reconcile cost against.
+	if r.PartsSent > 0 {
+		job.PartsSent = r.PartsSent
+	}
 	job.CompletedAt = &at
 	job.UpdatedAt = at
 	return nil

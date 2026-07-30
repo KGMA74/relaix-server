@@ -30,7 +30,7 @@ TAG   ?= $(VERSION)
 .DEFAULT_GOAL := help
 .PHONY: help build run test test-race cover lint fmt vet tidy \
         db-up db-down migrate migrate-down psql proto clean check \
-        docker-build docker-run
+        docker-build docker-run test-integration
 
 help: ## Show this help
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -59,6 +59,10 @@ test: ## Run tests (no race detector; see test-race)
 test-race: ## Run tests with the race detector, in a container
 	MSYS_NO_PATHCONV=1 docker run --rm -v "$(REPO_DIR):/src:ro" -w /src $(GOLANG_IMG) \
 		sh -c 'CGO_ENABLED=1 go test -race -count=1 $(PKG)'
+
+test-integration: db-up migrate ## Run the store conformance suite against a real Postgres
+	RELAIX_TEST_DATABASE_URL="$(DATABASE_URL)" $(GO) test -count=1 ./store/...
+	@$(MAKE) --no-print-directory db-down
 
 cover: ## Run tests with coverage and print the summary
 	$(GO) test -count=1 -coverprofile=coverage.out $(PKG)
