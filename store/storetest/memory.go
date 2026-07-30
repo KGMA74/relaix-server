@@ -14,6 +14,7 @@ import (
 	"cmp"
 	"context"
 	"fmt"
+	"maps"
 	"slices"
 	"sync"
 	"time"
@@ -29,7 +30,8 @@ import (
 // the callback. That is a cruder guarantee than the real store's row locks, but
 // it is a stricter one — anything that passes here would also pass under
 // serializable isolation — so a test that goes green on this fake is not being
-// told a comfortable lie about atomicity.
+// told a comfortable lie about atomicity, and a failed transaction really does
+// undo its writes.
 //
 // The four sub-stores are separate types sharing this state, because the
 // interfaces each declare a Create with a different signature and one type
@@ -99,20 +101,82 @@ func (s *Store) Enrollments() store.EnrollmentStore { return enrollmentStore{s} 
 // Events implements store.Store.
 func (s *Store) Events() store.EventStore { return eventStore{s} }
 
-// WithTx implements store.Store. Returning an error from fn does not roll back:
-// the fake has no undo log. Tests that need to observe a rollback belong
-// against the real store.
+// WithTx implements store.Store. Returning an error from fn rolls every write
+// back.
+//
+// Rollback is implemented by snapshotting the whole state on entry and
+// restoring it on failure — crude, but the data here is a handful of rows and
+// the alternative is a fake that silently keeps partial writes. That would be
+// worse than useless for the operations this exists to test: enrollment is only
+// safe because consuming a token and creating a device succeed or fail
+// together, and a fake that could not fail them together would go green on code
+// that leaks a device every time a token loses a race.
+// Nesting is rejected by txStore.WithTx rather than by an inTx check here: the
+// check would have to read shared state before taking the lock, which both
+// races and misfires — a caller merely waiting its turn would be told it was
+// nesting.
 func (s *Store) WithTx(ctx context.Context, fn func(store.Store) error) error {
-	if s.inTx {
-		return fmt.Errorf("storetest: nested WithTx")
-	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	undo := s.snapshot()
 
 	s.inTx = true
 	defer func() { s.inTx = false }()
 
-	return fn(txStore{s})
+	if err := fn(txStore{s}); err != nil {
+		s.restore(undo)
+		return err
+	}
+	return nil
+}
+
+// state is a deep copy of everything the store holds.
+type state struct {
+	devices     map[uuid.UUID]*store.Device
+	tokenToID   map[string]uuid.UUID
+	jobs        map[uuid.UUID]*store.Job
+	enrollments map[string]*store.EnrollmentToken
+	events      []*store.JobEvent
+	nextEventID int64
+}
+
+// snapshot deep-copies the state. The copies must be deep: the store mutates
+// the structs its maps point at, so sharing them would let a rolled-back
+// transaction's edits survive.
+func (s *Store) snapshot() state {
+	cp := state{
+		devices:     make(map[uuid.UUID]*store.Device, len(s.devices)),
+		tokenToID:   make(map[string]uuid.UUID, len(s.tokenToID)),
+		jobs:        make(map[uuid.UUID]*store.Job, len(s.jobs)),
+		enrollments: make(map[string]*store.EnrollmentToken, len(s.enrollments)),
+		events:      make([]*store.JobEvent, 0, len(s.events)),
+		nextEventID: s.nextEventID,
+	}
+	for k, v := range s.devices {
+		cp.devices[k] = copyDevice(v)
+	}
+	maps.Copy(cp.tokenToID, s.tokenToID)
+	for k, v := range s.jobs {
+		cp.jobs[k] = copyJob(v)
+	}
+	for k, v := range s.enrollments {
+		cp.enrollments[k] = copyToken(v)
+	}
+	for _, e := range s.events {
+		c := *e
+		cp.events = append(cp.events, &c)
+	}
+	return cp
+}
+
+func (s *Store) restore(st state) {
+	s.devices = st.devices
+	s.tokenToID = st.tokenToID
+	s.jobs = st.jobs
+	s.enrollments = st.enrollments
+	s.events = st.events
+	s.nextEventID = st.nextEventID
 }
 
 // txStore is the handle handed to a WithTx callback. It shares all state with
