@@ -21,6 +21,7 @@ import (
 	"github.com/KGMA74/relaix-server/hub"
 	"github.com/KGMA74/relaix-server/store"
 	"github.com/KGMA74/relaix-server/store/storetest"
+	"github.com/KGMA74/relaix-server/token"
 )
 
 var testNow = time.Date(2026, 7, 30, 12, 0, 0, 0, time.UTC)
@@ -42,7 +43,7 @@ func newHarness(t *testing.T) *harness {
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	st := storetest.New()
-	hasher := SHA256Hasher{}
+	hasher := token.SHA256{}
 
 	device := st.SeedDevice(&store.Device{Label: "test phone", Enabled: true})
 	// SeedDevice bypasses Create, so register the token mapping through it.
@@ -104,7 +105,7 @@ func healthyProto() *v1.DeviceHealth {
 }
 
 // connect opens a stream and sends the initial Register.
-func (h *harness) connect(t *testing.T, ctx context.Context, token string, pending ...string) (v1.DeviceGateway_ConnectClient, *v1.RegisterAck) {
+func (h *harness) connect(t *testing.T, ctx context.Context, tok string, pending ...string) (v1.DeviceGateway_ConnectClient, *v1.RegisterAck) {
 	t.Helper()
 
 	stream, err := h.client.Connect(ctx)
@@ -113,7 +114,7 @@ func (h *harness) connect(t *testing.T, ctx context.Context, token string, pendi
 	}
 	err = stream.Send(&v1.DeviceMessage{
 		MessageId:   uuid.NewString(),
-		DeviceToken: token,
+		DeviceToken: tok,
 		SentAt:      timestamppb.New(testNow),
 		Payload: &v1.DeviceMessage_Register{Register: &v1.Register{
 			DeviceInfo:    &v1.DeviceInfo{Label: "test phone", PhoneNumber: "+33600000000"},
@@ -514,8 +515,8 @@ func TestStreamCloseUnregistersFromHub(t *testing.T) {
 	}, "device was not unregistered when its stream closed")
 }
 
-func TestSHA256HasherIsStableAndDistinct(t *testing.T) {
-	hasher := SHA256Hasher{}
+func TestHasherWiring(t *testing.T) {
+	hasher := token.SHA256{}
 	first, second := hasher.Hash("a"), hasher.Hash("a")
 	if first != second {
 		t.Error("hash is not stable")

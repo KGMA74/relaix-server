@@ -23,6 +23,7 @@ import (
 	v1 "github.com/KGMA74/relaix-server/gen/smsgateway/v1"
 	"github.com/KGMA74/relaix-server/hub"
 	"github.com/KGMA74/relaix-server/store"
+	"github.com/KGMA74/relaix-server/token"
 )
 
 // Hub is the part of *hub.Hub this server uses, narrowed so the handlers can be
@@ -31,13 +32,6 @@ type Hub interface {
 	Register(ctx context.Context, deviceID uuid.UUID, health *store.DeviceHealth) (*hub.Registration, error)
 	Unregister(ctx context.Context, deviceID, regID uuid.UUID, reason string) error
 	Heartbeat(ctx context.Context, deviceID, regID uuid.UUID, health *store.DeviceHealth) error
-}
-
-// TokenHasher turns a plaintext token into the value stored in the database.
-// Injected rather than fixed so the hashing decision lives in one place and
-// tests need not pay for a slow KDF.
-type TokenHasher interface {
-	Hash(token string) string
 }
 
 // Options configures the server.
@@ -70,14 +64,14 @@ type Server struct {
 
 	store  store.Store
 	hub    Hub
-	hasher TokenHasher
+	hasher token.Hasher
 	opts   Options
 }
 
 // New creates a Server. Enroll is added in a later change; until then the
 // embedded UnimplementedDeviceGatewayServer answers it with Unimplemented,
 // which is the honest response.
-func New(s store.Store, h Hub, hasher TokenHasher, opts Options) *Server {
+func New(s store.Store, h Hub, hasher token.Hasher, opts Options) *Server {
 	opts.withDefaults()
 	return &Server{store: s, hub: h, hasher: hasher, opts: opts}
 }
