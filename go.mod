@@ -5,6 +5,7 @@ go 1.26.4
 require (
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.10.0
+	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
 	google.golang.org/grpc v1.82.1
 	google.golang.org/protobuf v1.36.11
 )
