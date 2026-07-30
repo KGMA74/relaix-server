@@ -66,11 +66,19 @@ type Server struct {
 	hub    Hub
 	hasher token.Hasher
 	opts   Options
+
+	// enroller is optional. A deployment that mints tokens out of band can run
+	// without it, and Enroll then answers Unimplemented rather than pretending.
+	enroller Enroller
 }
 
-// New creates a Server. Enroll is added in a later change; until then the
-// embedded UnimplementedDeviceGatewayServer answers it with Unimplemented,
-// which is the honest response.
+// WithEnroller enables the Enroll RPC.
+func (s *Server) WithEnroller(e Enroller) *Server {
+	s.enroller = e
+	return s
+}
+
+// New creates a Server. Call WithEnroller to enable the Enroll RPC.
 func New(s store.Store, h Hub, hasher token.Hasher, opts Options) *Server {
 	opts.withDefaults()
 	return &Server{store: s, hub: h, hasher: hasher, opts: opts}
