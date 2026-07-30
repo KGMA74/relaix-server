@@ -783,3 +783,6 @@ func copyUUID(u *uuid.UUID) *uuid.UUID {
 	c := *u
 	return &c
 }
+
+// Ping always succeeds: an in-memory store has nothing to be unreachable.
+func (s *Store) Ping(context.Context) error { return nil }

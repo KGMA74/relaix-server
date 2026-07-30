@@ -46,6 +46,10 @@ type Options struct {
 	// most a few hundred bytes, so anything larger is a mistake or an attack.
 	MaxBodyBytes int64
 
+	// Pinger backs the readiness probe. Nil makes /readyz answer purely on the
+	// process being up.
+	Pinger Pinger
+
 	Now    func() time.Time
 	Logger *slog.Logger
 }
@@ -83,6 +87,12 @@ func New(s store.Store, h Hub, e Enroller, opts Options) *Server {
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 
+	// Probes are outside authentication: an orchestrator's health check has no
+	// credentials to offer, and requiring them would mean the gateway is
+	// restarted for being unauthenticated rather than for being unhealthy.
+	mux.HandleFunc("GET /healthz", s.handleLive)
+	mux.HandleFunc("GET /readyz", s.handleReady)
+
 	mux.HandleFunc("POST /send", s.handleSend)
 	mux.HandleFunc("GET /jobs/{id}", s.handleGetJob)
 	mux.HandleFunc("DELETE /jobs/{id}", s.handleCancelJob)
@@ -95,10 +105,18 @@ func (s *Server) Handler() http.Handler {
 	return s.recover(s.logRequests(s.authenticate(mux)))
 }
 
+// publicPaths bypass authentication. Only the probes: an orchestrator's health
+// check has no credentials to offer, and requiring them would get the gateway
+// restarted for being unauthenticated rather than for being unhealthy.
+var publicPaths = map[string]bool{
+	"/healthz": true,
+	"/readyz":  true,
+}
+
 // authenticate checks the bearer token.
 func (s *Server) authenticate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if s.opts.APIKey == "" {
+		if s.opts.APIKey == "" || publicPaths[r.URL.Path] {
 			next.ServeHTTP(w, r)
 			return
 		}

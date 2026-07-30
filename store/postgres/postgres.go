@@ -134,3 +134,11 @@ func translate(err error) error {
 	}
 	return err
 }
+
+// Ping reports whether the database answers. Used by the readiness probe.
+func (s *Store) Ping(ctx context.Context) error {
+	if s.pool == nil {
+		return errors.New("postgres: no pool on a transaction-scoped store")
+	}
+	return s.pool.Ping(ctx)
+}
