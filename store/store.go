@@ -133,6 +133,15 @@ type JobStore interface {
 	// backoff schedule is the watcher's decision, not the store's — this only
 	// persists it.
 	ScheduleCallbackRetry(ctx context.Context, id uuid.UUID, nextAt time.Time, lastErr string) error
+
+	// AbandonCallback stops retrying without claiming success: it records the
+	// final failure and clears the schedule, so the job is never claimed again.
+	//
+	// Separate from MarkCallbackDelivered because giving up is not delivery.
+	// Reusing the delivered flag would make "which callbacks reached the
+	// caller" unanswerable, which is exactly the question an operator asks
+	// after an outage.
+	AbandonCallback(ctx context.Context, id uuid.UUID, reason string) error
 }
 
 // JobResult is the outcome of a send, as reported by a device.

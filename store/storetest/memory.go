@@ -532,6 +532,22 @@ func (j jobStore) MarkCallbackDelivered(ctx context.Context, id uuid.UUID, at ti
 	return nil
 }
 
+func (j jobStore) AbandonCallback(ctx context.Context, id uuid.UUID, reason string) error {
+	defer j.s.lock()()
+	if err := j.s.takeFailure(); err != nil {
+		return err
+	}
+	job, ok := j.s.jobs[id]
+	if !ok {
+		return store.ErrNotFound
+	}
+	job.Callback.Attempts++
+	job.Callback.NextAttemptAt = nil
+	job.Callback.LastError = reason
+	job.UpdatedAt = time.Now()
+	return nil
+}
+
 func (j jobStore) ScheduleCallbackRetry(ctx context.Context, id uuid.UUID, nextAt time.Time, lastErr string) error {
 	defer j.s.lock()()
 	if err := j.s.takeFailure(); err != nil {

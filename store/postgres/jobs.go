@@ -207,6 +207,26 @@ func (j jobStore) MarkCallbackDelivered(ctx context.Context, id uuid.UUID, at ti
 	return nil
 }
 
+// AbandonCallback clears the schedule without touching callback_delivered_at,
+// so the job is never claimed again and still reads as undelivered — because it
+// is.
+func (j jobStore) AbandonCallback(ctx context.Context, id uuid.UUID, reason string) error {
+	const q = `
+		UPDATE jobs SET
+			callback_attempts = callback_attempts + 1,
+			callback_next_at = NULL, callback_last_error = $2, updated_at = now()
+		WHERE id = $1`
+
+	tag, err := j.q.Exec(ctx, q, id, reason)
+	if err != nil {
+		return translate(err)
+	}
+	if tag.RowsAffected() == 0 {
+		return store.ErrNotFound
+	}
+	return nil
+}
+
 func (j jobStore) ScheduleCallbackRetry(ctx context.Context, id uuid.UUID, nextAt time.Time, lastErr string) error {
 	const q = `
 		UPDATE jobs SET

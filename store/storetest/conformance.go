@@ -486,6 +486,50 @@ func testJobs(t *testing.T, newStore Factory) {
 			t.Errorf("claimed %d delivered callbacks, want 0", len(claimed))
 		}
 	})
+
+	// Giving up is not delivery: an abandoned callback must stop being claimed
+	// while still reading as undelivered, or "which callbacks reached the
+	// caller" becomes unanswerable.
+	t.Run("abandon stops retries without claiming success", func(t *testing.T) {
+		s := newStore(t)
+		now := time.Now().UTC().Truncate(time.Millisecond)
+		due := now.Add(-time.Minute)
+
+		job := newJob(t, s, &store.Job{
+			Callback: store.CallbackState{URL: "https://example.test/cb", NextAttemptAt: &due},
+		})
+
+		if err := s.Jobs().AbandonCallback(ctx, job.ID, "gave up after 10 attempts"); err != nil {
+			t.Fatalf("AbandonCallback: %v", err)
+		}
+
+		got, _ := s.Jobs().Get(ctx, job.ID)
+		if got.Callback.DeliveredAt != nil {
+			t.Error("an abandoned callback was marked delivered")
+		}
+		if got.Callback.NextAttemptAt != nil {
+			t.Error("an abandoned callback is still scheduled")
+		}
+		if got.Callback.LastError == "" {
+			t.Error("the final failure was not kept for inspection")
+		}
+
+		var claimed []*store.Job
+		if err := s.WithTx(ctx, func(tx store.Store) error {
+			var err error
+			claimed, err = tx.Jobs().ClaimCallbacksDue(ctx, now.Add(time.Hour), 10)
+			return err
+		}); err != nil {
+			t.Fatalf("ClaimCallbacksDue: %v", err)
+		}
+		if len(claimed) != 0 {
+			t.Errorf("claimed %d abandoned callbacks, want 0", len(claimed))
+		}
+
+		if err := s.Jobs().AbandonCallback(ctx, uuid.New(), "x"); !errors.Is(err, store.ErrNotFound) {
+			t.Errorf("AbandonCallback on unknown job = %v, want ErrNotFound", err)
+		}
+	})
 }
 
 func testEnrollment(t *testing.T, newStore Factory) {
