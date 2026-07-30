@@ -1,0 +1,12 @@
+# Keep the build context small and the image reproducible: anything here would
+# either bloat the context or bake host state into the build.
+.git
+.gitignore
+bin/
+coverage.out
+Dockerfile
+.dockerignore
+Makefile
+README.md
+LICENSE
+*_test.go
