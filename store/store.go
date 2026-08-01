@@ -76,6 +76,17 @@ type DeviceStore interface {
 
 	// SetEnabled flips the operator kill switch.
 	SetEnabled(ctx context.Context, id uuid.UUID, enabled bool) error
+
+	// Delete removes a device permanently, or returns ErrNotFound.
+	//
+	// Jobs survive: their device columns are ON DELETE SET NULL, so the
+	// history of what was sent stays readable after the phone that sent it is
+	// gone. Retiring a handset must not erase the record of its work.
+	//
+	// This is the harsher of the two operator actions. SetEnabled(false) is
+	// reversible and keeps the row visible; Delete is for a phone that will
+	// never come back — sold, lost, or an enrollment that was replaced.
+	Delete(ctx context.Context, id uuid.UUID) error
 }
 
 // JobStore persists SMS requests and their outcomes.

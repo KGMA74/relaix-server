@@ -97,6 +97,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /jobs/{id}", s.handleGetJob)
 	mux.HandleFunc("DELETE /jobs/{id}", s.handleCancelJob)
 	mux.HandleFunc("GET /devices", s.handleListDevices)
+	mux.HandleFunc("PATCH /devices/{id}", s.handlePatchDevice)
+	mux.HandleFunc("DELETE /devices/{id}", s.handleDeleteDevice)
 	mux.HandleFunc("POST /admin/devices/enroll-token", s.handleEnrollToken)
 
 	// Ordered outermost first: recovery has to wrap logging so a panic is still

@@ -652,3 +652,150 @@ func TestRequestIDIsEchoed(t *testing.T) {
 		t.Error("no X-Request-Id returned")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Device retirement
+// ---------------------------------------------------------------------------
+
+func TestPatchDeviceDisablesAndReenables(t *testing.T) {
+	h := newHarness(t, Options{APIKey: testAPIKey})
+	ctx := context.Background()
+
+	dev, err := h.store.Devices().Create(ctx, &store.Device{Label: "desk phone"}, "hash-patch")
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	rec := h.do(t, http.MethodPatch, "/devices/"+dev.ID.String(), map[string]any{"enabled": false})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PATCH = %d, body %s", rec.Code, rec.Body.String())
+	}
+	got := decode[map[string]any](t, rec)
+	if got["enabled"] != false {
+		t.Errorf("response enabled = %v, want false", got["enabled"])
+	}
+
+	stored, err := h.store.Devices().Get(ctx, dev.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if stored.Enabled {
+		t.Error("device is still enabled in the store")
+	}
+
+	// Reversible is the whole point of the flag, so the way back matters as
+	// much as the way in.
+	rec = h.do(t, http.MethodPatch, "/devices/"+dev.ID.String(), map[string]any{"enabled": true})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("re-enable PATCH = %d, body %s", rec.Code, rec.Body.String())
+	}
+	stored, _ = h.store.Devices().Get(ctx, dev.ID)
+	if !stored.Enabled {
+		t.Error("device was not re-enabled")
+	}
+}
+
+func TestPatchDeviceRequiresEnabled(t *testing.T) {
+	h := newHarness(t, Options{APIKey: testAPIKey})
+	dev, err := h.store.Devices().Create(context.Background(),
+		&store.Device{Label: "x"}, "hash-empty-patch")
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	// An empty body must not disable the device by way of the zero value.
+	rec := h.do(t, http.MethodPatch, "/devices/"+dev.ID.String(), map[string]any{})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("PATCH with no enabled = %d, want 400", rec.Code)
+	}
+	stored, _ := h.store.Devices().Get(context.Background(), dev.ID)
+	if !stored.Enabled {
+		t.Error("an empty patch disabled the device")
+	}
+}
+
+func TestPatchDeviceNotFound(t *testing.T) {
+	h := newHarness(t, Options{APIKey: testAPIKey})
+	rec := h.do(t, http.MethodPatch, "/devices/"+uuid.NewString(),
+		map[string]any{"enabled": false})
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("PATCH unknown device = %d, want 404", rec.Code)
+	}
+}
+
+func TestDeleteDeviceRemovesItAndItsToken(t *testing.T) {
+	h := newHarness(t, Options{APIKey: testAPIKey})
+	ctx := context.Background()
+
+	dev, err := h.store.Devices().Create(ctx, &store.Device{Label: "retired"}, "hash-delete-api")
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	rec := h.do(t, http.MethodDelete, "/devices/"+dev.ID.String(), nil)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("DELETE = %d, body %s", rec.Code, rec.Body.String())
+	}
+
+	if _, err := h.store.Devices().Get(ctx, dev.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("Get after DELETE = %v, want ErrNotFound", err)
+	}
+	// The stream is not torn down explicitly; it dies because the token no
+	// longer authenticates. If that stopped being true a retired handset would
+	// keep its connection.
+	if _, err := h.store.Devices().GetByTokenHash(ctx, "hash-delete-api"); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("token still authenticates after DELETE: %v", err)
+	}
+}
+
+func TestDeleteDeviceKeepsItsJobs(t *testing.T) {
+	h := newHarness(t, Options{APIKey: testAPIKey})
+	ctx := context.Background()
+
+	dev, err := h.store.Devices().Create(ctx, &store.Device{Label: "sender"}, "hash-delete-jobs")
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	job, err := h.store.Jobs().Create(ctx, &store.Job{
+		Recipient: "+22600000000", Body: "kept", Mode: store.ModeQueued,
+	})
+	if err != nil {
+		t.Fatalf("Jobs.Create: %v", err)
+	}
+	if err := h.store.Jobs().MarkAssigned(ctx, job.ID, dev.ID, testNow); err != nil {
+		t.Fatalf("MarkAssigned: %v", err)
+	}
+
+	if rec := h.do(t, http.MethodDelete, "/devices/"+dev.ID.String(), nil); rec.Code != http.StatusNoContent {
+		t.Fatalf("DELETE = %d", rec.Code)
+	}
+
+	// Retiring a phone must not erase what it sent.
+	if _, err := h.store.Jobs().Get(ctx, job.ID); err != nil {
+		t.Errorf("job disappeared with its device: %v", err)
+	}
+}
+
+func TestDeleteDeviceNotFound(t *testing.T) {
+	h := newHarness(t, Options{APIKey: testAPIKey})
+	rec := h.do(t, http.MethodDelete, "/devices/"+uuid.NewString(), nil)
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("DELETE unknown device = %d, want 404", rec.Code)
+	}
+}
+
+func TestDeviceRetirementNeedsAuth(t *testing.T) {
+	h := newHarness(t, Options{APIKey: testAPIKey})
+	id := uuid.NewString()
+
+	for _, method := range []string{http.MethodPatch, http.MethodDelete} {
+		req := httptest.NewRequest(method, "/devices/"+id, strings.NewReader(`{"enabled":false}`))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		h.handler.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusUnauthorized {
+			t.Errorf("%s without a key = %d, want 401", method, rec.Code)
+		}
+	}
+}

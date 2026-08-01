@@ -311,6 +311,39 @@ func (d deviceStore) SetEnabled(ctx context.Context, id uuid.UUID, enabled bool)
 	return nil
 }
 
+func (d deviceStore) Delete(ctx context.Context, id uuid.UUID) error {
+	defer d.s.lock()()
+	if err := d.s.takeFailure(); err != nil {
+		return err
+	}
+	if _, ok := d.s.devices[id]; !ok {
+		return store.ErrNotFound
+	}
+	delete(d.s.devices, id)
+
+	// The token index is separate here, unlike Postgres where the hash lives
+	// on the row and disappears with it. Forgetting this left a deleted device
+	// still authenticating — which the conformance suite caught.
+	for hash, owner := range d.s.tokenToID {
+		if owner == id {
+			delete(d.s.tokenToID, hash)
+		}
+	}
+
+	// Mirrors ON DELETE SET NULL in the schema: jobs keep their history but
+	// stop pointing at a device that no longer exists. Without this the fake
+	// would let a conformance test pass while Postgres behaved differently.
+	for _, j := range d.s.jobs {
+		if j.RequestedDeviceID != nil && *j.RequestedDeviceID == id {
+			j.RequestedDeviceID = nil
+		}
+		if j.AssignedDeviceID != nil && *j.AssignedDeviceID == id {
+			j.AssignedDeviceID = nil
+		}
+	}
+	return nil
+}
+
 // ---------------------------------------------------------------------------
 // JobStore
 // ---------------------------------------------------------------------------

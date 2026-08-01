@@ -188,6 +188,102 @@ func testDevices(t *testing.T, newStore Factory) {
 			t.Errorf("List returned %d devices, want 3", len(got))
 		}
 	})
+
+	t.Run("delete removes the device", func(t *testing.T) {
+		s := newStore(t)
+		dev, err := s.Devices().Create(ctx, &store.Device{Label: "retired"}, "hash-delete")
+		if err != nil {
+			t.Fatalf("Create: %v", err)
+		}
+
+		if err := s.Devices().Delete(ctx, dev.ID); err != nil {
+			t.Fatalf("Delete: %v", err)
+		}
+		if _, err := s.Devices().Get(ctx, dev.ID); !errors.Is(err, store.ErrNotFound) {
+			t.Errorf("Get after Delete = %v, want ErrNotFound", err)
+		}
+
+		// The token must stop authenticating the instant the row is gone, or a
+		// retired handset would keep holding a stream.
+		if _, err := s.Devices().GetByTokenHash(ctx, "hash-delete"); !errors.Is(err, store.ErrNotFound) {
+			t.Errorf("GetByTokenHash after Delete = %v, want ErrNotFound", err)
+		}
+	})
+
+	t.Run("delete is not found twice", func(t *testing.T) {
+		s := newStore(t)
+		dev, err := s.Devices().Create(ctx, &store.Device{Label: "gone"}, "hash-twice")
+		if err != nil {
+			t.Fatalf("Create: %v", err)
+		}
+		if err := s.Devices().Delete(ctx, dev.ID); err != nil {
+			t.Fatalf("Delete: %v", err)
+		}
+		if err := s.Devices().Delete(ctx, dev.ID); !errors.Is(err, store.ErrNotFound) {
+			t.Errorf("second Delete = %v, want ErrNotFound", err)
+		}
+	})
+
+	t.Run("delete works on a device that consumed an enrollment token", func(t *testing.T) {
+		// The realistic case, and the one that broke in production while the
+		// earlier delete tests passed: every real device got here by consuming
+		// a token, and enrollment_tokens carried a CHECK that made
+		// "consumed by a device that no longer exists" unrepresentable.
+		s := newStore(t)
+		const tokenHash = "hash-enrolled-delete"
+		if _, err := s.Enrollments().Create(ctx, tokenHash, time.Now().Add(time.Hour)); err != nil {
+			t.Fatalf("Enrollments.Create: %v", err)
+		}
+		dev, err := s.Devices().Create(ctx, &store.Device{Label: "enrolled"}, "hash-dev-enrolled")
+		if err != nil {
+			t.Fatalf("Devices.Create: %v", err)
+		}
+		if _, err := s.Enrollments().Consume(ctx, tokenHash, dev.ID, time.Now()); err != nil {
+			t.Fatalf("Consume: %v", err)
+		}
+
+		if err := s.Devices().Delete(ctx, dev.ID); err != nil {
+			t.Fatalf("Delete after enrollment: %v", err)
+		}
+	})
+
+	t.Run("delete keeps the jobs the device sent", func(t *testing.T) {
+		s := newStore(t)
+		dev, err := s.Devices().Create(ctx, &store.Device{Label: "sender"}, "hash-jobs")
+		if err != nil {
+			t.Fatalf("Create: %v", err)
+		}
+		job, err := s.Jobs().Create(ctx, &store.Job{
+			Recipient:         "+22600000000",
+			Body:              "kept",
+			Mode:              store.ModeQueued,
+			RequestedDeviceID: &dev.ID,
+		})
+		if err != nil {
+			t.Fatalf("Jobs.Create: %v", err)
+		}
+		if err := s.Jobs().MarkAssigned(ctx, job.ID, dev.ID, time.Now()); err != nil {
+			t.Fatalf("MarkAssigned: %v", err)
+		}
+
+		if err := s.Devices().Delete(ctx, dev.ID); err != nil {
+			t.Fatalf("Delete: %v", err)
+		}
+
+		// Retiring a handset must not erase the record of its work: the row
+		// survives with its device columns nulled, which is what the schema's
+		// ON DELETE SET NULL buys.
+		got, err := s.Jobs().Get(ctx, job.ID)
+		if err != nil {
+			t.Fatalf("Jobs.Get after device Delete: %v", err)
+		}
+		if got.AssignedDeviceID != nil {
+			t.Errorf("AssignedDeviceID = %v, want nil after the device was deleted", got.AssignedDeviceID)
+		}
+		if got.RequestedDeviceID != nil {
+			t.Errorf("RequestedDeviceID = %v, want nil after the device was deleted", got.RequestedDeviceID)
+		}
+	})
 }
 
 func testJobs(t *testing.T, newStore Factory) {

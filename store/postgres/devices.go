@@ -151,6 +151,20 @@ func (d deviceStore) SetEnabled(ctx context.Context, id uuid.UUID, enabled bool)
 	return nil
 }
 
+func (d deviceStore) Delete(ctx context.Context, id uuid.UUID) error {
+	// No cascade needed here: jobs.requested_device_id and
+	// jobs.assigned_device_id are ON DELETE SET NULL, so the record of what
+	// this phone sent outlives the phone.
+	tag, err := d.q.Exec(ctx, `DELETE FROM devices WHERE id = $1`, id)
+	if err != nil {
+		return translate(err)
+	}
+	if tag.RowsAffected() == 0 {
+		return store.ErrNotFound
+	}
+	return nil
+}
+
 // scanner is satisfied by both pgx.Row and pgx.Rows, so one scan function
 // serves single-row and multi-row queries.
 type scanner interface {

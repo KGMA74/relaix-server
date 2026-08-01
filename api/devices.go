@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"time"
 
@@ -11,6 +12,98 @@ import (
 	"github.com/KGMA74/relaix-server/hub"
 	"github.com/KGMA74/relaix-server/store"
 )
+
+// devicePatchRequest is the operator kill switch: reversible, and it leaves
+// the row in place so the fleet list still shows the phone exists.
+type devicePatchRequest struct {
+	Enabled *bool `json:"enabled"`
+}
+
+// handleDeleteDevice retires a phone permanently.
+//
+// The jobs it sent survive — their device columns are ON DELETE SET NULL — so
+// deleting a handset removes it from the fleet without erasing the record of
+// what it did.
+//
+// An open stream dies on its own rather than being torn down here: every
+// message on Connect is authenticated against the stored token hash, which is
+// gone with the row, so the next frame is rejected. Disabling works the same
+// way, which is why neither needs to reach into the hub.
+func (s *Server) handleDeleteDevice(w http.ResponseWriter, r *http.Request) {
+	id, ok := s.parseID(w, r)
+	if !ok {
+		return
+	}
+
+	err := s.store.Devices().Delete(r.Context(), id)
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		writeError(w, http.StatusNotFound, "not_found", "no such device")
+		return
+	case err != nil:
+		s.opts.Logger.Error("could not delete device", "device_id", id, "err", err)
+		writeError(w, http.StatusInternalServerError, "internal", "could not delete device")
+		return
+	}
+
+	s.opts.Logger.Info("device deleted", "device_id", id)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handlePatchDevice flips the enabled flag.
+//
+// Separate from DELETE on purpose: an operator silencing a phone for an
+// afternoon and one retiring it for good want different things, and only one
+// of them is reversible.
+func (s *Server) handlePatchDevice(w http.ResponseWriter, r *http.Request) {
+	id, ok := s.parseID(w, r)
+	if !ok {
+		return
+	}
+
+	var req devicePatchRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_json", "body is not valid JSON")
+		return
+	}
+	if req.Enabled == nil {
+		// A pointer, so "enabled": false is distinguishable from an empty
+		// body; without that check the zero value would silently disable a
+		// device on a malformed request.
+		writeError(w, http.StatusBadRequest, "invalid_request", "enabled is required")
+		return
+	}
+
+	ctx := r.Context()
+	err := s.store.Devices().SetEnabled(ctx, id, *req.Enabled)
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		writeError(w, http.StatusNotFound, "not_found", "no such device")
+		return
+	case err != nil:
+		s.opts.Logger.Error("could not update device", "device_id", id, "err", err)
+		writeError(w, http.StatusInternalServerError, "internal", "could not update device")
+		return
+	}
+
+	s.opts.Logger.Info("device enabled flag set", "device_id", id, "enabled", *req.Enabled)
+
+	device, err := s.store.Devices().Get(ctx, id)
+	if err != nil {
+		writeJSON(w, http.StatusOK, nil)
+		return
+	}
+	writeJSON(w, http.StatusOK, deviceResponse{
+		DeviceID:    device.ID.String(),
+		Label:       device.Label,
+		PhoneNumber: device.PhoneNumber,
+		Enabled:     device.Enabled,
+		Model:       device.Model,
+		OSVersion:   device.OSVersion,
+		Carrier:     device.Carrier,
+		CreatedAt:   device.CreatedAt.UTC().Format(time.RFC3339),
+	})
+}
 
 // deviceResponse merges what the database knows about a device with what the
 // hub knows about its connection. Neither half is enough on its own: the
