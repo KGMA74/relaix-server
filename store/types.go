@@ -83,6 +83,45 @@ type DeviceHealth struct {
 	// device that accepts jobs and fails every one.
 	PermissionsOK bool
 	ReportedAt    time.Time
+
+	// Sims is per-SIM signal/readiness/count on a multi-SIM handset. Empty on
+	// a single-SIM phone, where the fields above already say it. Keyed by
+	// SubscriptionID, refreshed wholesale on every report — there is no
+	// per-SIM history, only the latest snapshot.
+	Sims []SimHealth
+}
+
+// SimHealth is the changing half of a SIM: identity lives in SimInfo, this is
+// what a heartbeat refreshes.
+type SimHealth struct {
+	// SubscriptionID matches a SimInfo.SubscriptionID reported by the same
+	// device.
+	SubscriptionID int32
+	SignalStrength int
+	SimReady       bool
+	// SentLastHour is per SIM: the carrier meters the SIM, not the handset, so
+	// the device-level total above is the sum and the wrong number to rate
+	// limit a single SIM against.
+	SentLastHour int
+}
+
+// SimInfo is the identity of one SIM a handset can send from — stable while
+// the SIM stays in the phone, unlike SimHealth.
+type SimInfo struct {
+	// SubscriptionID is Android's subscription id, and the value
+	// Job.SubscriptionID refers to. Deliberately not the slot: slots are
+	// reused when a SIM is swapped, which would silently redirect traffic to a
+	// different number.
+	SubscriptionID int32
+	// SlotIndex is the physical slot, 0-based. For an operator's benefit —
+	// "the one in the top tray" — never for routing.
+	SlotIndex   int32
+	PhoneNumber string
+	Carrier     string
+	DisplayName string
+	// IsDefaultSMS marks the subscription used when a job names none. Exactly
+	// one SIM has this set.
+	IsDefaultSMS bool
 }
 
 // Device is an enrolled phone.
@@ -99,6 +138,13 @@ type Device struct {
 	OSVersion    string
 	AgentVersion string
 	Carrier      string
+
+	// Sims is every SIM the handset can send from, as of the last Register.
+	// Empty on a single-SIM phone, or one that cannot enumerate them: Carrier
+	// and PhoneNumber above already describe that case. Refreshed wholesale on
+	// Register (a slot changes only on a physical SIM swap, which needs a
+	// reconnect anyway), not on every heartbeat.
+	Sims []SimInfo
 
 	// Health is nil for a device that enrolled but has never connected. Nil
 	// rather than a zero value on purpose: an absent report and a report of
@@ -134,6 +180,15 @@ type Job struct {
 	// for, versus what happened. A requested device is never substituted.
 	RequestedDeviceID *uuid.UUID
 	AssignedDeviceID  *uuid.UUID
+
+	// SubscriptionID names which SIM to send from on a multi-SIM handset. Nil
+	// means the device's default SMS subscription, which is what a single-SIM
+	// phone always uses.
+	//
+	// Only meaningful together with a device: subscription ids are assigned by
+	// Android per handset, so the same number identifies different SIMs on two
+	// phones. Naming one without naming a device is refused at the API.
+	SubscriptionID *int32
 
 	Status       JobStatus
 	ErrorCode    string

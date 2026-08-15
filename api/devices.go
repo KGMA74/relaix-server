@@ -109,18 +109,40 @@ func (s *Server) handlePatchDevice(w http.ResponseWriter, r *http.Request) {
 // hub knows about its connection. Neither half is enough on its own: the
 // database has the identity and the hub has the liveness.
 type deviceResponse struct {
-	DeviceID    string          `json:"deviceId"`
-	Label       string          `json:"label"`
-	PhoneNumber string          `json:"phoneNumber,omitempty"`
-	Enabled     bool            `json:"enabled"`
-	Connected   bool            `json:"connected"`
-	Ready       bool            `json:"ready"`
-	Model       string          `json:"model,omitempty"`
-	OSVersion   string          `json:"osVersion,omitempty"`
-	Carrier     string          `json:"carrier,omitempty"`
-	Health      *healthResponse `json:"health,omitempty"`
-	LastSeenAt  *string         `json:"lastSeenAt,omitempty"`
-	CreatedAt   string          `json:"createdAt"`
+	DeviceID    string `json:"deviceId"`
+	Label       string `json:"label"`
+	PhoneNumber string `json:"phoneNumber,omitempty"`
+	Enabled     bool   `json:"enabled"`
+	Connected   bool   `json:"connected"`
+	Ready       bool   `json:"ready"`
+	Model       string `json:"model,omitempty"`
+	OSVersion   string `json:"osVersion,omitempty"`
+	Carrier     string `json:"carrier,omitempty"`
+	// Sims lists the subscriptionId values valid for this device's
+	// subscriptionId on POST /send. Empty on a single-SIM phone, or one that
+	// has never registered — PhoneNumber and Carrier above already describe
+	// that case.
+	Sims       []simResponse   `json:"sims,omitempty"`
+	Health     *healthResponse `json:"health,omitempty"`
+	LastSeenAt *string         `json:"lastSeenAt,omitempty"`
+	CreatedAt  string          `json:"createdAt"`
+}
+
+// simResponse merges a SIM's identity with its latest health, matching how an
+// operator thinks about a SIM even though the two live in separate proto
+// messages and separate columns.
+type simResponse struct {
+	SubscriptionID int32  `json:"subscriptionId"`
+	SlotIndex      int32  `json:"slotIndex"`
+	PhoneNumber    string `json:"phoneNumber,omitempty"`
+	Carrier        string `json:"carrier,omitempty"`
+	DisplayName    string `json:"displayName,omitempty"`
+	IsDefaultSMS   bool   `json:"isDefaultSms"`
+	// SignalStrength, SimReady and SentLastHour are zero-valued until the
+	// first heartbeat carries this subscription's health.
+	SignalStrength int  `json:"signalStrength"`
+	SimReady       bool `json:"simReady"`
+	SentLastHour   int  `json:"sentLastHour"`
 }
 
 type healthResponse struct {
@@ -134,6 +156,35 @@ type healthResponse struct {
 	SentLastHour   int    `json:"sentLastHour"`
 	PermissionsOK  bool   `json:"permissionsOk"`
 	ReportedAt     string `json:"reportedAt"`
+}
+
+// toSimResponses joins SIM identity with the latest per-SIM health, keyed by
+// subscriptionId. A SIM the device has never sent health for still appears —
+// identity is known at Register, before any heartbeat.
+func toSimResponses(info []store.SimInfo, health []store.SimHealth) []simResponse {
+	if len(info) == 0 {
+		return nil
+	}
+	byID := make(map[int32]store.SimHealth, len(health))
+	for _, h := range health {
+		byID[h.SubscriptionID] = h
+	}
+	out := make([]simResponse, len(info))
+	for i, s := range info {
+		h := byID[s.SubscriptionID]
+		out[i] = simResponse{
+			SubscriptionID: s.SubscriptionID,
+			SlotIndex:      s.SlotIndex,
+			PhoneNumber:    s.PhoneNumber,
+			Carrier:        s.Carrier,
+			DisplayName:    s.DisplayName,
+			IsDefaultSMS:   s.IsDefaultSMS,
+			SignalStrength: h.SignalStrength,
+			SimReady:       h.SimReady,
+			SentLastHour:   h.SentLastHour,
+		}
+	}
+	return out
 }
 
 func (s *Server) handleListDevices(w http.ResponseWriter, r *http.Request) {
@@ -193,6 +244,12 @@ func (s *Server) handleListDevices(w http.ResponseWriter, r *http.Request) {
 			health = conn.Health
 		}
 		resp.Health = toHealthResponse(health)
+
+		var simHealth []store.SimHealth
+		if health != nil {
+			simHealth = health.Sims
+		}
+		resp.Sims = toSimResponses(d.Sims, simHealth)
 
 		if online {
 			at := conn.LastSeenAt.UTC().Format(time.RFC3339)

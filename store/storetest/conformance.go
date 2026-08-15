@@ -115,6 +115,10 @@ func testDevices(t *testing.T, newStore Factory) {
 			BatteryLevel: 55, IsCharging: true, SignalStrength: 3,
 			NetworkType: "LTE", SimReady: true, SentLastHour: 7,
 			PermissionsOK: true, ReportedAt: seen,
+			Sims: []store.SimHealth{
+				{SubscriptionID: 1, SignalStrength: 4, SimReady: true, SentLastHour: 5},
+				{SubscriptionID: 2, SignalStrength: 2, SimReady: false, SentLastHour: 2},
+			},
 		}
 		if err := s.Devices().Touch(ctx, dev.ID, health, seen); err != nil {
 			t.Fatalf("Touch: %v", err)
@@ -133,8 +137,27 @@ func testDevices(t *testing.T, newStore Factory) {
 			got.Health.NetworkType != "LTE" {
 			t.Errorf("health round trip lost fields: %+v", got.Health)
 		}
+		if len(got.Health.Sims) != 2 || got.Health.Sims[0] != health.Sims[0] ||
+			got.Health.Sims[1] != health.Sims[1] {
+			t.Errorf("sim health round trip lost fields: %+v", got.Health.Sims)
+		}
 		if got.LastSeenAt == nil {
 			t.Error("LastSeenAt is nil after Touch")
+		}
+
+		// A second Touch with no Sims must not be read as "the device lost its
+		// second SIM": a nil health leaves the row untouched altogether, which
+		// this test already exercises for the scalar fields above, and it must
+		// hold for Sims too.
+		if err := s.Devices().Touch(ctx, dev.ID, nil, seen.Add(time.Second)); err != nil {
+			t.Fatalf("Touch(nil): %v", err)
+		}
+		got, err = s.Devices().Get(ctx, dev.ID)
+		if err != nil {
+			t.Fatalf("Get: %v", err)
+		}
+		if len(got.Health.Sims) != 2 {
+			t.Errorf("Touch(nil) changed Sims: %+v", got.Health.Sims)
 		}
 	})
 
@@ -152,8 +175,13 @@ func testDevices(t *testing.T, newStore Factory) {
 		if err != nil {
 			t.Fatalf("Create: %v", err)
 		}
+		sims := []store.SimInfo{
+			{SubscriptionID: 1, SlotIndex: 0, PhoneNumber: "+33600000001",
+				Carrier: "Orange", DisplayName: "Perso", IsDefaultSMS: true},
+			{SubscriptionID: 2, SlotIndex: 1, Carrier: "SFR", DisplayName: "Work"},
+		}
 		if err := s.Devices().UpdateInfo(ctx, dev.ID, &store.Device{
-			Label: "new", PhoneNumber: "+1", Carrier: "Orange",
+			Label: "new", PhoneNumber: "+1", Carrier: "Orange", Sims: sims,
 		}); err != nil {
 			t.Fatalf("UpdateInfo: %v", err)
 		}
@@ -168,8 +196,25 @@ func testDevices(t *testing.T, newStore Factory) {
 		if got.Label != "new" || got.Carrier != "Orange" {
 			t.Errorf("UpdateInfo did not take: %+v", got)
 		}
+		if len(got.Sims) != 2 || got.Sims[0] != sims[0] || got.Sims[1] != sims[1] {
+			t.Errorf("sim info round trip lost fields: %+v", got.Sims)
+		}
 		if got.Enabled {
 			t.Error("SetEnabled(false) did not take")
+		}
+
+		// A re-enrollment with no SIMs (single-SIM phone, or one that cannot
+		// enumerate them) must clear the previous list rather than leave it
+		// stale — unlike Touch, UpdateInfo always replaces.
+		if err := s.Devices().UpdateInfo(ctx, dev.ID, &store.Device{Label: "new"}); err != nil {
+			t.Fatalf("UpdateInfo (clear sims): %v", err)
+		}
+		got, err = s.Devices().Get(ctx, dev.ID)
+		if err != nil {
+			t.Fatalf("Get: %v", err)
+		}
+		if len(got.Sims) != 0 {
+			t.Errorf("UpdateInfo with no sims left %d behind, want 0", len(got.Sims))
 		}
 	})
 

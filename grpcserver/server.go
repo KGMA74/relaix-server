@@ -340,9 +340,32 @@ func (s *Server) onJobAck(ctx context.Context, device *store.Device, ack *v1.Job
 		return
 	}
 
-	// An explicit refusal is worth more than a timeout: release the job now so
-	// the next tick can place it on another phone.
 	reason := "device refused: " + ack.GetReason()
+
+	// A refusal the agent calls permanent will repeat identically on every
+	// retry — a SIM this handset does not have does not appear by waiting.
+	// Releasing it would spend the job's attempts re-asking the same question
+	// and leave the caller with "too many attempts" instead of the answer the
+	// agent already gave.
+	if ack.GetPermanent() {
+		result := store.JobResult{
+			Status:       store.JobFailed,
+			ErrorCode:    "device_refused",
+			ErrorMessage: ack.GetReason(),
+			CompletedAt:  s.opts.Now(),
+		}
+		if err := s.store.Jobs().Complete(ctx, jobID, result); err != nil {
+			if !errors.Is(err, store.ErrConflict) {
+				log.Warn("could not fail permanently refused job", "job_id", jobID, "err", err)
+			}
+			return
+		}
+		s.event(ctx, jobID, store.JobFailed, &device.ID, reason)
+		return
+	}
+
+	// Otherwise an explicit refusal is still worth more than a timeout:
+	// release the job now so the next tick can place it on another phone.
 	if err := s.store.Jobs().Release(ctx, jobID, reason); err != nil {
 		log.Warn("could not release refused job", "job_id", jobID, "err", err)
 		return
@@ -413,7 +436,24 @@ func healthFromProto(h *v1.DeviceHealth, now time.Time) *store.DeviceHealth {
 		SentLastHour:   int(h.GetSentLastHour()),
 		PermissionsOK:  h.GetPermissionsOk(),
 		ReportedAt:     now,
+		Sims:           simHealthFromProto(h.GetSims()),
 	}
+}
+
+func simHealthFromProto(sims []*v1.SimHealth) []store.SimHealth {
+	if len(sims) == 0 {
+		return nil
+	}
+	out := make([]store.SimHealth, len(sims))
+	for i, s := range sims {
+		out[i] = store.SimHealth{
+			SubscriptionID: s.GetSubscriptionId(),
+			SignalStrength: int(s.GetSignalStrength()),
+			SimReady:       s.GetSimReady(),
+			SentLastHour:   int(s.GetSentLastHour()),
+		}
+	}
+	return out
 }
 
 func deviceFromProto(i *v1.DeviceInfo) *store.Device {
@@ -425,7 +465,26 @@ func deviceFromProto(i *v1.DeviceInfo) *store.Device {
 		OSVersion:    i.GetOsVersion(),
 		AgentVersion: i.GetAgentVersion(),
 		Carrier:      i.GetCarrier(),
+		Sims:         simInfoFromProto(i.GetSims()),
 	}
+}
+
+func simInfoFromProto(sims []*v1.SimInfo) []store.SimInfo {
+	if len(sims) == 0 {
+		return nil
+	}
+	out := make([]store.SimInfo, len(sims))
+	for i, s := range sims {
+		out[i] = store.SimInfo{
+			SubscriptionID: s.GetSubscriptionId(),
+			SlotIndex:      s.GetSlotIndex(),
+			PhoneNumber:    s.GetPhoneNumber(),
+			Carrier:        s.GetCarrier(),
+			DisplayName:    s.GetDisplayName(),
+			IsDefaultSMS:   s.GetIsDefaultSms(),
+		}
+	}
+	return out
 }
 
 func statusFromProto(s v1.JobStatus) store.JobStatus {

@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	"github.com/google/uuid"
@@ -16,22 +17,107 @@ type deviceStore struct{ q querier }
 // another.
 const deviceColumns = `
 	id, label, phone_number, enabled,
-	manufacturer, model, os_version, agent_version, carrier,
+	manufacturer, model, os_version, agent_version, carrier, sim_info,
 	battery_level, is_charging, signal_strength, network_type,
-	sim_ready, sent_last_hour, permissions_ok, health_reported_at,
+	sim_ready, sent_last_hour, permissions_ok, sim_health, health_reported_at,
 	last_seen_at, created_at, updated_at`
+
+// simInfoRow and simHealthRow are the JSON shape of the sim_info / sim_health
+// columns. Kept separate from store.SimInfo/SimHealth rather than tagging
+// those directly: nothing else in store carries json tags, and the wire
+// representation of a column is this package's concern, not the domain
+// type's.
+type simInfoRow struct {
+	SubscriptionID int32  `json:"subscriptionId"`
+	SlotIndex      int32  `json:"slotIndex"`
+	PhoneNumber    string `json:"phoneNumber,omitempty"`
+	Carrier        string `json:"carrier,omitempty"`
+	DisplayName    string `json:"displayName,omitempty"`
+	IsDefaultSMS   bool   `json:"isDefaultSms,omitempty"`
+}
+
+type simHealthRow struct {
+	SubscriptionID int32 `json:"subscriptionId"`
+	SignalStrength int   `json:"signalStrength"`
+	SimReady       bool  `json:"simReady"`
+	SentLastHour   int   `json:"sentLastHour"`
+}
+
+func marshalSimInfo(sims []store.SimInfo) ([]byte, error) {
+	rows := make([]simInfoRow, len(sims))
+	for i, s := range sims {
+		rows[i] = simInfoRow{
+			SubscriptionID: s.SubscriptionID, SlotIndex: s.SlotIndex,
+			PhoneNumber: s.PhoneNumber, Carrier: s.Carrier,
+			DisplayName: s.DisplayName, IsDefaultSMS: s.IsDefaultSMS,
+		}
+	}
+	return json.Marshal(rows)
+}
+
+func unmarshalSimInfo(raw []byte) ([]store.SimInfo, error) {
+	var rows []simInfoRow
+	if err := json.Unmarshal(raw, &rows); err != nil {
+		return nil, err
+	}
+	if len(rows) == 0 {
+		return nil, nil
+	}
+	out := make([]store.SimInfo, len(rows))
+	for i, r := range rows {
+		out[i] = store.SimInfo{
+			SubscriptionID: r.SubscriptionID, SlotIndex: r.SlotIndex,
+			PhoneNumber: r.PhoneNumber, Carrier: r.Carrier,
+			DisplayName: r.DisplayName, IsDefaultSMS: r.IsDefaultSMS,
+		}
+	}
+	return out, nil
+}
+
+func marshalSimHealth(sims []store.SimHealth) ([]byte, error) {
+	rows := make([]simHealthRow, len(sims))
+	for i, s := range sims {
+		rows[i] = simHealthRow{
+			SubscriptionID: s.SubscriptionID, SignalStrength: s.SignalStrength,
+			SimReady: s.SimReady, SentLastHour: s.SentLastHour,
+		}
+	}
+	return json.Marshal(rows)
+}
+
+func unmarshalSimHealth(raw []byte) ([]store.SimHealth, error) {
+	var rows []simHealthRow
+	if err := json.Unmarshal(raw, &rows); err != nil {
+		return nil, err
+	}
+	if len(rows) == 0 {
+		return nil, nil
+	}
+	out := make([]store.SimHealth, len(rows))
+	for i, r := range rows {
+		out[i] = store.SimHealth{
+			SubscriptionID: r.SubscriptionID, SignalStrength: r.SignalStrength,
+			SimReady: r.SimReady, SentLastHour: r.SentLastHour,
+		}
+	}
+	return out, nil
+}
 
 func (d deviceStore) Create(ctx context.Context, in *store.Device, tokenHash string) (*store.Device, error) {
 	const q = `
 		INSERT INTO devices (
 			label, phone_number, token_hash, enabled,
-			manufacturer, model, os_version, agent_version, carrier
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+			manufacturer, model, os_version, agent_version, carrier, sim_info
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
 		RETURNING ` + deviceColumns
 
+	simInfo, err := marshalSimInfo(in.Sims)
+	if err != nil {
+		return nil, err
+	}
 	row := d.q.QueryRow(ctx, q,
 		in.Label, in.PhoneNumber, tokenHash, true,
-		in.Manufacturer, in.Model, in.OSVersion, in.AgentVersion, in.Carrier,
+		in.Manufacturer, in.Model, in.OSVersion, in.AgentVersion, in.Carrier, simInfo,
 	)
 	dev, err := scanDevice(row)
 	return dev, translate(err)
@@ -75,12 +161,17 @@ func (d deviceStore) UpdateInfo(ctx context.Context, id uuid.UUID, in *store.Dev
 	const q = `
 		UPDATE devices SET
 			label = $2, phone_number = $3, manufacturer = $4, model = $5,
-			os_version = $6, agent_version = $7, carrier = $8, updated_at = now()
+			os_version = $6, agent_version = $7, carrier = $8, sim_info = $9,
+			updated_at = now()
 		WHERE id = $1`
 
+	simInfo, err := marshalSimInfo(in.Sims)
+	if err != nil {
+		return err
+	}
 	tag, err := d.q.Exec(ctx, q, id,
 		in.Label, in.PhoneNumber, in.Manufacturer, in.Model,
-		in.OSVersion, in.AgentVersion, in.Carrier,
+		in.OSVersion, in.AgentVersion, in.Carrier, simInfo,
 	)
 	if err != nil {
 		return translate(err)
@@ -107,7 +198,8 @@ func (d deviceStore) Touch(ctx context.Context, id uuid.UUID, h *store.DeviceHea
 			sim_ready          = COALESCE($7,  sim_ready),
 			sent_last_hour     = COALESCE($8,  sent_last_hour),
 			permissions_ok     = COALESCE($9,  permissions_ok),
-			health_reported_at = COALESCE($10, health_reported_at),
+			sim_health         = COALESCE($10, sim_health),
+			health_reported_at = COALESCE($11, health_reported_at),
 			updated_at         = $2
 		WHERE id = $1`
 
@@ -115,12 +207,18 @@ func (d deviceStore) Touch(ctx context.Context, id uuid.UUID, h *store.DeviceHea
 		battery, signal, sent      *int
 		charging, sim, permissions *bool
 		network                    *string
+		simHealth                  []byte
 		reportedAt                 *time.Time
 	)
 	if h != nil {
 		battery, signal, sent = &h.BatteryLevel, &h.SignalStrength, &h.SentLastHour
 		charging, sim, permissions = &h.IsCharging, &h.SimReady, &h.PermissionsOK
 		network = &h.NetworkType
+		var err error
+		simHealth, err = marshalSimHealth(h.Sims)
+		if err != nil {
+			return err
+		}
 		at := h.ReportedAt
 		if at.IsZero() {
 			at = seenAt
@@ -129,7 +227,7 @@ func (d deviceStore) Touch(ctx context.Context, id uuid.UUID, h *store.DeviceHea
 	}
 
 	tag, err := d.q.Exec(ctx, q, id, seenAt,
-		battery, charging, signal, network, sim, sent, permissions, reportedAt)
+		battery, charging, signal, network, sim, sent, permissions, simHealth, reportedAt)
 	if err != nil {
 		return translate(err)
 	}
@@ -174,6 +272,7 @@ type scanner interface {
 func scanDevice(row scanner) (*store.Device, error) {
 	var (
 		d          store.Device
+		simInfo    []byte
 		battery    *int
 		charging   *bool
 		signal     *int
@@ -181,16 +280,22 @@ func scanDevice(row scanner) (*store.Device, error) {
 		sim        *bool
 		sentLast   *int
 		perms      *bool
+		simHealth  []byte
 		reportedAt *time.Time
 	)
 
 	err := row.Scan(
 		&d.ID, &d.Label, &d.PhoneNumber, &d.Enabled,
-		&d.Manufacturer, &d.Model, &d.OSVersion, &d.AgentVersion, &d.Carrier,
+		&d.Manufacturer, &d.Model, &d.OSVersion, &d.AgentVersion, &d.Carrier, &simInfo,
 		&battery, &charging, &signal, &network,
-		&sim, &sentLast, &perms, &reportedAt,
+		&sim, &sentLast, &perms, &simHealth, &reportedAt,
 		&d.LastSeenAt, &d.CreatedAt, &d.UpdatedAt,
 	)
+	if err != nil {
+		return nil, err
+	}
+
+	d.Sims, err = unmarshalSimInfo(simInfo)
 	if err != nil {
 		return nil, err
 	}
@@ -199,6 +304,10 @@ func scanDevice(row scanner) (*store.Device, error) {
 	// gets a nil Health rather than a zeroed struct, so "no report" cannot be
 	// read as "battery empty, no signal".
 	if reportedAt != nil {
+		sims, err := unmarshalSimHealth(simHealth)
+		if err != nil {
+			return nil, err
+		}
 		d.Health = &store.DeviceHealth{
 			BatteryLevel:   deref(battery),
 			IsCharging:     deref(charging),
@@ -208,6 +317,7 @@ func scanDevice(row scanner) (*store.Device, error) {
 			SentLastHour:   deref(sentLast),
 			PermissionsOK:  deref(perms),
 			ReportedAt:     *reportedAt,
+			Sims:           sims,
 		}
 	}
 	return &d, nil

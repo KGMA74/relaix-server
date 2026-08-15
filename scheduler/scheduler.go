@@ -324,5 +324,11 @@ func toProto(j *store.Job) *v1.SendSmsJob {
 	if j.ExpiresAt != nil {
 		msg.ExpiresAt = timestamppb.New(*j.ExpiresAt)
 	}
+	if j.SubscriptionID != nil {
+		msg.SubscriptionId = *j.SubscriptionID
+	}
+	// Left at zero otherwise, which the contract defines as "the handset's
+	// default SMS subscription" — the behaviour every job had before the field
+	// existed.
 	return msg
 }

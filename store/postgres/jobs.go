@@ -13,7 +13,7 @@ type jobStore struct{ q querier }
 
 const jobColumns = `
 	id, recipient, body, mode, priority,
-	scheduled_at, expires_at, requested_device_id, assigned_device_id,
+	scheduled_at, expires_at, requested_device_id, assigned_device_id, subscription_id,
 	status, error_code, error_message, parts_sent, attempts,
 	callback_url, callback_attempts, callback_next_at, callback_delivered_at, callback_last_error,
 	created_at, updated_at, assigned_at, completed_at`
@@ -22,13 +22,13 @@ func (j jobStore) Create(ctx context.Context, in *store.Job) (*store.Job, error)
 	const q = `
 		INSERT INTO jobs (
 			recipient, body, mode, priority, scheduled_at, expires_at,
-			requested_device_id, callback_url, callback_next_at
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+			requested_device_id, subscription_id, callback_url, callback_next_at
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
 		RETURNING ` + jobColumns
 
 	row := j.q.QueryRow(ctx, q,
 		in.Recipient, in.Body, string(in.Mode), in.Priority,
-		in.ScheduledAt, in.ExpiresAt, in.RequestedDeviceID,
+		in.ScheduledAt, in.ExpiresAt, in.RequestedDeviceID, in.SubscriptionID,
 		in.Callback.URL, in.Callback.NextAttemptAt,
 	)
 	job, err := scanJob(row)
@@ -285,7 +285,7 @@ func scanJob(row scanner) (*store.Job, error) {
 
 	err := row.Scan(
 		&j.ID, &j.Recipient, &j.Body, &mode, &j.Priority,
-		&j.ScheduledAt, &j.ExpiresAt, &j.RequestedDeviceID, &j.AssignedDeviceID,
+		&j.ScheduledAt, &j.ExpiresAt, &j.RequestedDeviceID, &j.AssignedDeviceID, &j.SubscriptionID,
 		&status, &j.ErrorCode, &j.ErrorMessage, &j.PartsSent, &j.Attempts,
 		&j.Callback.URL, &j.Callback.Attempts, &j.Callback.NextAttemptAt,
 		&j.Callback.DeliveredAt, &j.Callback.LastError,

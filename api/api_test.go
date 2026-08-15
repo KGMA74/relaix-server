@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -796,6 +797,150 @@ func TestDeviceRetirementNeedsAuth(t *testing.T) {
 
 		if rec.Code != http.StatusUnauthorized {
 			t.Errorf("%s without a key = %d, want 401", method, rec.Code)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Sending to several recipients
+// ---------------------------------------------------------------------------
+
+func TestSendFansOutToOneJobPerRecipient(t *testing.T) {
+	h := newHarness(t, Options{APIKey: testAPIKey})
+
+	rec := h.do(t, http.MethodPost, "/send", map[string]any{
+		"recipients": []string{"+22674881334", "+33600000000", "+22670000000"},
+		"body":       "same message, three phones",
+		"priority":   7,
+	})
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("POST /send = %d, body %s", rec.Code, rec.Body.String())
+	}
+
+	got := decode[map[string][]jobResponse](t, rec)
+	jobs := got["jobs"]
+	if len(jobs) != 3 {
+		t.Fatalf("got %d jobs, want 3", len(jobs))
+	}
+
+	// Distinct ids matter: a shared struct would have every job carrying the
+	// same identity, and only the last write would survive.
+	seen := map[string]bool{}
+	for _, j := range jobs {
+		if seen[j.JobID] {
+			t.Errorf("duplicate job id %s", j.JobID)
+		}
+		seen[j.JobID] = true
+		if j.Priority != 7 {
+			t.Errorf("priority = %d, want the request's 7", j.Priority)
+		}
+	}
+
+	if jobs[0].Recipient != "+22674881334" || jobs[2].Recipient != "+22670000000" {
+		t.Errorf("recipients not preserved in order: %v", jobs)
+	}
+}
+
+func TestSendSingleRecipientKeepsTheObjectResponse(t *testing.T) {
+	h := newHarness(t, Options{APIKey: testAPIKey})
+
+	// The old spelling must keep its old reply, or every existing caller
+	// breaks on an unrelated feature.
+	rec := h.do(t, http.MethodPost, "/send", map[string]any{
+		"recipient": "+22674881334",
+		"body":      "one",
+	})
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("POST /send = %d, body %s", rec.Code, rec.Body.String())
+	}
+
+	got := decode[jobResponse](t, rec)
+	if got.JobID == "" || got.Recipient != "+22674881334" {
+		t.Errorf("single send did not return a job object: %s", rec.Body.String())
+	}
+}
+
+func TestSendRejectsBothRecipientForms(t *testing.T) {
+	h := newHarness(t, Options{APIKey: testAPIKey})
+
+	rec := h.do(t, http.MethodPost, "/send", map[string]any{
+		"recipient":  "+22674881334",
+		"recipients": []string{"+33600000000"},
+		"body":       "which one?",
+	})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("= %d, want 400 for both forms at once", rec.Code)
+	}
+}
+
+func TestSendRejectsAnInvalidRecipientInTheList(t *testing.T) {
+	h := newHarness(t, Options{APIKey: testAPIKey})
+
+	rec := h.do(t, http.MethodPost, "/send", map[string]any{
+		"recipients": []string{"+22674881334", "not-a-number", "+33600000000"},
+		"body":       "one bad apple",
+	})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("= %d, want 400", rec.Code)
+	}
+	// The index is what makes a list of fifty debuggable.
+	if !strings.Contains(rec.Body.String(), "recipient 1") {
+		t.Errorf("error should name which recipient failed, got %s", rec.Body.String())
+	}
+
+	// Nothing may have been created: the batch is all or nothing, and a
+	// rejected request must not leave half a batch behind.
+	if jobs, _ := h.store.Jobs().ListAssignedTo(context.Background(), uuid.Nil); len(jobs) != 0 {
+		t.Errorf("a rejected batch created %d jobs", len(jobs))
+	}
+}
+
+func TestSendRejectsAnEmptyRecipientList(t *testing.T) {
+	h := newHarness(t, Options{APIKey: testAPIKey})
+
+	rec := h.do(t, http.MethodPost, "/send", map[string]any{
+		"recipients": []string{},
+		"body":       "nobody",
+	})
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("= %d, want 400 for an empty list", rec.Code)
+	}
+}
+
+func TestSendRejectsTooManyRecipients(t *testing.T) {
+	h := newHarness(t, Options{APIKey: testAPIKey})
+
+	many := make([]string, maxRecipients+1)
+	for i := range many {
+		many[i] = "+336000000" + fmt.Sprintf("%02d", i%100)
+	}
+
+	rec := h.do(t, http.MethodPost, "/send", map[string]any{
+		"recipients": many,
+		"body":       "too many",
+	})
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("= %d, want 400 past the cap", rec.Code)
+	}
+}
+
+func TestBatchSendSharesTheSchedule(t *testing.T) {
+	h := newHarness(t, Options{APIKey: testAPIKey})
+	at := testNow.Add(time.Hour).UTC().Format(time.RFC3339)
+
+	rec := h.do(t, http.MethodPost, "/send", map[string]any{
+		"recipients":  []string{"+22674881334", "+33600000000"},
+		"body":        "later, both",
+		"scheduledAt": at,
+	})
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("= %d, body %s", rec.Code, rec.Body.String())
+	}
+
+	jobs := decode[map[string][]jobResponse](t, rec)["jobs"]
+	for _, j := range jobs {
+		if j.ScheduledAt == nil || *j.ScheduledAt != at {
+			t.Errorf("job %s lost the schedule: %+v", j.Recipient, j.ScheduledAt)
 		}
 	}
 }

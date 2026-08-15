@@ -408,5 +408,6 @@ func copyHealth(h *store.DeviceHealth) *store.DeviceHealth {
 		return nil
 	}
 	c := *h
+	c.Sims = append([]store.SimHealth(nil), h.Sims...)
 	return &c
 }

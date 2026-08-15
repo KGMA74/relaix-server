@@ -220,6 +220,7 @@ func (d deviceStore) Create(ctx context.Context, in *store.Device, tokenHash str
 		cp.CreatedAt = time.Now()
 	}
 	cp.UpdatedAt = cp.CreatedAt
+	cp.Sims = append([]store.SimInfo(nil), in.Sims...)
 	cp.Health = copyHealth(in.Health)
 	// A newly enrolled device is enabled, whatever the caller passed. The
 	// column is NOT NULL DEFAULT true and the insert sets it explicitly, so the
@@ -277,6 +278,7 @@ func (d deviceStore) UpdateInfo(ctx context.Context, id uuid.UUID, in *store.Dev
 	dev.OSVersion = in.OSVersion
 	dev.AgentVersion = in.AgentVersion
 	dev.Carrier = in.Carrier
+	dev.Sims = append([]store.SimInfo(nil), in.Sims...)
 	dev.UpdatedAt = time.Now()
 	return nil
 }
@@ -290,7 +292,12 @@ func (d deviceStore) Touch(ctx context.Context, id uuid.UUID, h *store.DeviceHea
 	if !ok {
 		return store.ErrNotFound
 	}
-	dev.Health = copyHealth(h)
+	// A nil health leaves the stored snapshot alone rather than blanking it, to
+	// match store/postgres: a heartbeat that carried no health is not evidence
+	// the phone has none.
+	if h != nil {
+		dev.Health = copyHealth(h)
+	}
 	t := seenAt
 	dev.LastSeenAt = &t
 	dev.UpdatedAt = seenAt
@@ -721,6 +728,7 @@ func (s *Store) SeedDevice(d *store.Device) *store.Device {
 	if cp.ID == uuid.Nil {
 		cp.ID = uuid.New()
 	}
+	cp.Sims = append([]store.SimInfo(nil), d.Sims...)
 	cp.Health = copyHealth(d.Health)
 	s.devices[cp.ID] = &cp
 	return copyDevice(&cp)
@@ -762,6 +770,7 @@ func copyDevice(d *store.Device) *store.Device {
 		return nil
 	}
 	cp := *d
+	cp.Sims = append([]store.SimInfo(nil), d.Sims...)
 	cp.Health = copyHealth(d.Health)
 	cp.LastSeenAt = copyTime(d.LastSeenAt)
 	return &cp
@@ -772,6 +781,7 @@ func copyHealth(h *store.DeviceHealth) *store.DeviceHealth {
 		return nil
 	}
 	cp := *h
+	cp.Sims = append([]store.SimHealth(nil), h.Sims...)
 	return &cp
 }
 
