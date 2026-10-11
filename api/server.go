@@ -94,12 +94,15 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /readyz", s.handleReady)
 
 	mux.HandleFunc("POST /send", s.handleSend)
+	mux.HandleFunc("GET /jobs", s.handleListJobs)
 	mux.HandleFunc("GET /jobs/{id}", s.handleGetJob)
+	mux.HandleFunc("GET /jobs/{id}/events", s.handleJobEvents)
 	mux.HandleFunc("DELETE /jobs/{id}", s.handleCancelJob)
 	mux.HandleFunc("GET /devices", s.handleListDevices)
 	mux.HandleFunc("PATCH /devices/{id}", s.handlePatchDevice)
 	mux.HandleFunc("DELETE /devices/{id}", s.handleDeleteDevice)
 	mux.HandleFunc("POST /admin/devices/enroll-token", s.handleEnrollToken)
+	mux.HandleFunc("GET /stats", s.handleStats)
 
 	// Ordered outermost first: recovery has to wrap logging so a panic is still
 	// logged with its request id, and authentication runs inside both so

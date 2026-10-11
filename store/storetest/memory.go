@@ -11,11 +11,13 @@
 package storetest
 
 import (
+	"bytes"
 	"cmp"
 	"context"
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -45,6 +47,12 @@ type Store struct {
 	enrollments map[string]*store.EnrollmentToken // token hash -> token
 	events      []*store.JobEvent
 	nextEventID int64
+
+	// lastJobAt keeps job creation times strictly increasing. Postgres gives
+	// each transaction its own now(), but the wall clock here can return the
+	// same instant twice in a row on Windows, and job history is ordered by
+	// creation time. Like a sequence, it is not rolled back with a transaction.
+	lastJobAt time.Time
 
 	// inTx marks a handle scoped to a WithTx callback, so the lock is taken
 	// once rather than recursively.
@@ -371,6 +379,10 @@ func (j jobStore) Create(ctx context.Context, in *store.Job) (*store.Job, error)
 	}
 	if cp.CreatedAt.IsZero() {
 		cp.CreatedAt = time.Now()
+		if !cp.CreatedAt.After(j.s.lastJobAt) {
+			cp.CreatedAt = j.s.lastJobAt.Add(time.Microsecond)
+		}
+		j.s.lastJobAt = cp.CreatedAt
 	}
 	cp.UpdatedAt = cp.CreatedAt
 	j.s.jobs[cp.ID] = &cp
@@ -533,6 +545,76 @@ func (j jobStore) ListAssignedTo(ctx context.Context, deviceID uuid.UUID) ([]*st
 		}
 	}
 	slices.SortFunc(out, func(a, b *store.Job) int { return a.CreatedAt.Compare(b.CreatedAt) })
+	return out, nil
+}
+
+// List mirrors the Postgres ordering exactly, including the tie-break on id:
+// uuid comparison there is a byte-wise memcmp, which is what bytes.Compare
+// does here. A fake that broke ties some other way would page differently.
+func (j jobStore) List(ctx context.Context, f store.JobFilter) ([]*store.Job, error) {
+	defer j.s.lock()()
+	if err := j.s.takeFailure(); err != nil {
+		return nil, err
+	}
+
+	var out []*store.Job
+	for _, job := range j.s.jobs {
+		if matchesFilter(job, f) {
+			out = append(out, copyJob(job))
+		}
+	}
+	slices.SortFunc(out, func(a, b *store.Job) int { return -compareJobOrder(a.CreatedAt, a.ID, b.CreatedAt, b.ID) })
+	if f.Limit > 0 && len(out) > f.Limit {
+		out = out[:f.Limit]
+	}
+	return out, nil
+}
+
+func matchesFilter(job *store.Job, f store.JobFilter) bool {
+	if len(f.Statuses) > 0 && !slices.Contains(f.Statuses, job.Status) {
+		return false
+	}
+	if f.DeviceID != nil {
+		assigned := job.AssignedDeviceID != nil && *job.AssignedDeviceID == *f.DeviceID
+		requested := job.RequestedDeviceID != nil && *job.RequestedDeviceID == *f.DeviceID
+		if !assigned && !requested {
+			return false
+		}
+	}
+	if f.RecipientPrefix != "" && !strings.HasPrefix(job.Recipient, f.RecipientPrefix) {
+		return false
+	}
+	if f.CreatedFrom != nil && job.CreatedAt.Before(*f.CreatedFrom) {
+		return false
+	}
+	if f.CreatedTo != nil && !job.CreatedAt.Before(*f.CreatedTo) {
+		return false
+	}
+	if f.After != nil && compareJobOrder(job.CreatedAt, job.ID, f.After.CreatedAt, f.After.ID) >= 0 {
+		return false
+	}
+	return true
+}
+
+// compareJobOrder compares (createdAt, id) pairs ascending.
+func compareJobOrder(aAt time.Time, aID uuid.UUID, bAt time.Time, bID uuid.UUID) int {
+	if c := aAt.Compare(bAt); c != 0 {
+		return c
+	}
+	return bytes.Compare(aID[:], bID[:])
+}
+
+func (j jobStore) CountByStatus(ctx context.Context, since time.Time) (map[store.JobStatus]int, error) {
+	defer j.s.lock()()
+	if err := j.s.takeFailure(); err != nil {
+		return nil, err
+	}
+	out := make(map[store.JobStatus]int)
+	for _, job := range j.s.jobs {
+		if !job.CreatedAt.Before(since) {
+			out[job.Status]++
+		}
+	}
 	return out, nil
 }
 

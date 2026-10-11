@@ -213,6 +213,41 @@ func (j *Job) Expired(now time.Time) bool {
 	return j.ExpiresAt != nil && now.After(*j.ExpiresAt)
 }
 
+// JobFilter narrows JobStore.List. Every field is optional and they combine
+// with AND; the zero value matches every job.
+type JobFilter struct {
+	// Statuses matches any of the listed states. Empty means all.
+	Statuses []JobStatus
+	// DeviceID matches a job the device was asked for or was given. Both,
+	// because "what did this phone have to do with" is the operator's question,
+	// and a requested job not yet placed belongs to the answer.
+	DeviceID *uuid.UUID
+	// RecipientPrefix matches the start of the E.164 number, so "+237" narrows
+	// to a country and a full number to one recipient.
+	RecipientPrefix string
+	// CreatedFrom is inclusive, CreatedTo exclusive.
+	CreatedFrom *time.Time
+	CreatedTo   *time.Time
+
+	// After resumes a listing: only jobs strictly older than the cursor, in
+	// List's order, are returned. Nil starts from the newest.
+	After *JobCursor
+	// Limit bounds the result. Zero or less means no bound, which only tests
+	// and small fleets should rely on.
+	Limit int
+}
+
+// JobCursor is a position in List's ordering: the last job a caller has seen.
+type JobCursor struct {
+	CreatedAt time.Time
+	ID        uuid.UUID
+}
+
+// CursorOf returns the cursor that resumes a listing after j.
+func CursorOf(j *Job) *JobCursor {
+	return &JobCursor{CreatedAt: j.CreatedAt, ID: j.ID}
+}
+
 // CallbackState tracks the outbound webhook for a job. It lives on the job
 // rather than in its own table: there is exactly one callback per job, so the
 // watcher's poll needs no join.

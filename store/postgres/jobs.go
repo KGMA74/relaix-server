@@ -2,6 +2,8 @@ package postgres
 
 import (
 	"context"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -172,6 +174,82 @@ func (j jobStore) ListAssignedTo(ctx context.Context, deviceID uuid.UUID) ([]*st
 		ORDER BY created_at`
 
 	return j.queryJobs(ctx, q, deviceID)
+}
+
+// List builds its WHERE clause from whichever filters are set, always as
+// positional arguments: the filter values come straight from a query string.
+//
+// The cursor is a row comparison, (created_at, id) < ($a, $b), which matches
+// the ORDER BY term for term and so is served by jobs_created_idx as a single
+// index range rather than a filter over everything newer.
+func (j jobStore) List(ctx context.Context, f store.JobFilter) ([]*store.Job, error) {
+	var (
+		where []string
+		args  []any
+	)
+	arg := func(v any) string {
+		args = append(args, v)
+		return "$" + strconv.Itoa(len(args))
+	}
+
+	if len(f.Statuses) > 0 {
+		statuses := make([]string, len(f.Statuses))
+		for i, s := range f.Statuses {
+			statuses[i] = string(s)
+		}
+		where = append(where, "status = ANY("+arg(statuses)+")")
+	}
+	if f.DeviceID != nil {
+		p := arg(*f.DeviceID)
+		where = append(where, "(assigned_device_id = "+p+" OR requested_device_id = "+p+")")
+	}
+	if f.RecipientPrefix != "" {
+		// starts_with rather than LIKE, so a stray % or _ in the input is a
+		// character to match and not a wildcard.
+		where = append(where, "starts_with(recipient, "+arg(f.RecipientPrefix)+")")
+	}
+	if f.CreatedFrom != nil {
+		where = append(where, "created_at >= "+arg(*f.CreatedFrom))
+	}
+	if f.CreatedTo != nil {
+		where = append(where, "created_at < "+arg(*f.CreatedTo))
+	}
+	if f.After != nil {
+		where = append(where, "(created_at, id) < ("+arg(f.After.CreatedAt)+", "+arg(f.After.ID)+")")
+	}
+
+	q := `SELECT ` + jobColumns + ` FROM jobs`
+	if len(where) > 0 {
+		q += ` WHERE ` + strings.Join(where, " AND ")
+	}
+	q += ` ORDER BY created_at DESC, id DESC`
+	if f.Limit > 0 {
+		q += ` LIMIT ` + arg(f.Limit)
+	}
+
+	return j.queryJobs(ctx, q, args...)
+}
+
+func (j jobStore) CountByStatus(ctx context.Context, since time.Time) (map[store.JobStatus]int, error) {
+	rows, err := j.q.Query(ctx,
+		`SELECT status, count(*) FROM jobs WHERE created_at >= $1 GROUP BY status`, since)
+	if err != nil {
+		return nil, translate(err)
+	}
+	defer rows.Close()
+
+	out := make(map[store.JobStatus]int)
+	for rows.Next() {
+		var (
+			status string
+			n      int
+		)
+		if err := rows.Scan(&status, &n); err != nil {
+			return nil, translate(err)
+		}
+		out[store.JobStatus(status)] = n
+	}
+	return out, translate(rows.Err())
 }
 
 // ClaimCallbacksDue locks what it returns, for the same reason as

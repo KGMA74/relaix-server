@@ -133,6 +133,17 @@ type JobStore interface {
 	// of blindly redispatching.
 	ListAssignedTo(ctx context.Context, deviceID uuid.UUID) ([]*Job, error)
 
+	// List returns jobs matching f, newest first — ordered by CreatedAt then ID,
+	// both descending, so ties on the timestamp still have one fixed order and
+	// a cursor taken from the last row resumes exactly after it. That ordering
+	// is what lets a caller page through history while new jobs keep arriving,
+	// which an offset could not: every insert would shift the next page.
+	List(ctx context.Context, f JobFilter) ([]*Job, error)
+
+	// CountByStatus counts jobs created at or after since, per status. Statuses
+	// with no jobs are absent rather than zero.
+	CountByStatus(ctx context.Context, since time.Time) (map[JobStatus]int, error)
+
 	// ClaimCallbacksDue returns up to limit jobs whose webhook is owed and due,
 	// locked for the caller's transaction. Same contract as ClaimSchedulable.
 	ClaimCallbacksDue(ctx context.Context, now time.Time, limit int) ([]*Job, error)

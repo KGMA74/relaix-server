@@ -671,6 +671,154 @@ func testJobs(t *testing.T, newStore Factory) {
 			t.Errorf("AbandonCallback on unknown job = %v, want ErrNotFound", err)
 		}
 	})
+
+	t.Run("list is newest first and pages without gaps or repeats", func(t *testing.T) {
+		s := newStore(t)
+		newJob(t, s, &store.Job{Body: "first"})
+		// A fanout writes several jobs in one transaction, so on Postgres they
+		// share one now(): the cursor has to page through a timestamp tie.
+		if err := s.WithTx(ctx, func(tx store.Store) error {
+			for range 3 {
+				newJob(t, tx, &store.Job{Body: "fanout"})
+			}
+			return nil
+		}); err != nil {
+			t.Fatalf("WithTx: %v", err)
+		}
+		newJob(t, s, &store.Job{Body: "last"})
+
+		all, err := s.Jobs().List(ctx, store.JobFilter{})
+		if err != nil {
+			t.Fatalf("List: %v", err)
+		}
+		if len(all) != 5 {
+			t.Fatalf("List returned %d jobs, want 5", len(all))
+		}
+		if all[0].Body != "last" || all[4].Body != "first" {
+			t.Errorf("order = %s..%s, want last..first", all[0].Body, all[4].Body)
+		}
+		for i := 1; i < len(all); i++ {
+			if all[i].CreatedAt.After(all[i-1].CreatedAt) {
+				t.Errorf("job %d is newer than job %d", i, i-1)
+			}
+		}
+
+		var paged []*store.Job
+		f := store.JobFilter{Limit: 2}
+		for page := 0; ; page++ {
+			if page > 5 {
+				t.Fatal("paging did not terminate")
+			}
+			got, err := s.Jobs().List(ctx, f)
+			if err != nil {
+				t.Fatalf("List page %d: %v", page, err)
+			}
+			if len(got) == 0 {
+				break
+			}
+			paged = append(paged, got...)
+			f.After = store.CursorOf(got[len(got)-1])
+		}
+		if len(paged) != len(all) {
+			t.Fatalf("paging returned %d jobs, want %d", len(paged), len(all))
+		}
+		for i := range all {
+			if paged[i].ID != all[i].ID {
+				t.Errorf("page position %d = %v, want %v", i, paged[i].ID, all[i].ID)
+			}
+		}
+	})
+
+	t.Run("list filters combine", func(t *testing.T) {
+		s := newStore(t)
+		dev, err := s.Devices().Create(ctx, &store.Device{Label: "d"}, "hash-filter")
+		if err != nil {
+			t.Fatalf("Create device: %v", err)
+		}
+
+		cm := newJob(t, s, &store.Job{Recipient: "+237670000001"})
+		requested := newJob(t, s, &store.Job{Recipient: "+237670000002", RequestedDeviceID: &dev.ID})
+		fr := newJob(t, s, &store.Job{Recipient: "+33600000001"})
+		if err := s.Jobs().MarkAssigned(ctx, fr.ID, dev.ID, time.Now()); err != nil {
+			t.Fatalf("MarkAssigned: %v", err)
+		}
+		if err := s.Jobs().Complete(ctx, fr.ID, store.JobResult{
+			Status: store.JobSent, PartsSent: 1, CompletedAt: time.Now(),
+		}); err != nil {
+			t.Fatalf("Complete: %v", err)
+		}
+
+		ids := func(t *testing.T, f store.JobFilter) []uuid.UUID {
+			t.Helper()
+			got, err := s.Jobs().List(ctx, f)
+			if err != nil {
+				t.Fatalf("List(%+v): %v", f, err)
+			}
+			out := make([]uuid.UUID, len(got))
+			for i, j := range got {
+				out[i] = j.ID
+			}
+			return out
+		}
+		want := func(t *testing.T, name string, got []uuid.UUID, want ...uuid.UUID) {
+			t.Helper()
+			if len(got) != len(want) {
+				t.Errorf("%s: got %d jobs, want %d", name, len(got), len(want))
+				return
+			}
+			for i := range want {
+				if got[i] != want[i] {
+					t.Errorf("%s: position %d = %v, want %v", name, i, got[i], want[i])
+				}
+			}
+		}
+
+		want(t, "status", ids(t, store.JobFilter{Statuses: []store.JobStatus{store.JobSent}}), fr.ID)
+		want(t, "statuses", ids(t, store.JobFilter{
+			Statuses: []store.JobStatus{store.JobSent, store.JobPending},
+		}), fr.ID, requested.ID, cm.ID)
+		// Requested and assigned both count as "this device's job".
+		want(t, "device", ids(t, store.JobFilter{DeviceID: &dev.ID}), fr.ID, requested.ID)
+		want(t, "prefix", ids(t, store.JobFilter{RecipientPrefix: "+237"}), requested.ID, cm.ID)
+		want(t, "prefix and status", ids(t, store.JobFilter{
+			RecipientPrefix: "+237", Statuses: []store.JobStatus{store.JobSent},
+		}))
+		// A LIKE wildcard in the input is a literal, not a pattern.
+		want(t, "wildcard", ids(t, store.JobFilter{RecipientPrefix: "%"}))
+
+		from, to := requested.CreatedAt, fr.CreatedAt
+		want(t, "range is [from, to)", ids(t, store.JobFilter{CreatedFrom: &from, CreatedTo: &to}), requested.ID)
+	})
+
+	t.Run("count by status", func(t *testing.T) {
+		s := newStore(t)
+		before := newJob(t, s, &store.Job{})
+		newJob(t, s, &store.Job{})
+		cancelled := newJob(t, s, &store.Job{})
+		if err := s.Jobs().Cancel(ctx, cancelled.ID, "test"); err != nil {
+			t.Fatalf("Cancel: %v", err)
+		}
+
+		all, err := s.Jobs().CountByStatus(ctx, time.Time{})
+		if err != nil {
+			t.Fatalf("CountByStatus: %v", err)
+		}
+		if all[store.JobPending] != 3-1 || all[store.JobCancelled] != 1 {
+			t.Errorf("counts = %v, want pending=2 cancelled=1", all)
+		}
+		if _, ok := all[store.JobSent]; ok {
+			t.Error("a status with no jobs must be absent, not zero")
+		}
+
+		// since is inclusive and excludes what came before it.
+		recent, err := s.Jobs().CountByStatus(ctx, before.CreatedAt.Add(time.Microsecond))
+		if err != nil {
+			t.Fatalf("CountByStatus: %v", err)
+		}
+		if recent[store.JobPending]+recent[store.JobCancelled] != 2 {
+			t.Errorf("counts since the second job = %v, want 2 jobs", recent)
+		}
+	})
 }
 
 func testEnrollment(t *testing.T, newStore Factory) {

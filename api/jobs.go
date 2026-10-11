@@ -56,6 +56,7 @@ type jobResponse struct {
 	JobID          string  `json:"jobId"`
 	Status         string  `json:"status"`
 	Recipient      string  `json:"recipient"`
+	Body           string  `json:"body"`
 	Mode           string  `json:"mode"`
 	Priority       int     `json:"priority"`
 	DeviceID       *string `json:"deviceId,omitempty"`
@@ -65,6 +66,7 @@ type jobResponse struct {
 	ErrorCode      string  `json:"errorCode,omitempty"`
 	ErrorMsg       string  `json:"errorMessage,omitempty"`
 	ScheduledAt    *string `json:"scheduledAt,omitempty"`
+	ExpiresAt      *string `json:"expiresAt,omitempty"`
 	CreatedAt      string  `json:"createdAt"`
 	CompletedAt    *string `json:"completedAt,omitempty"`
 }
@@ -417,6 +419,7 @@ func toJobResponse(j *store.Job) jobResponse {
 		JobID:     j.ID.String(),
 		Status:    string(j.Status),
 		Recipient: j.Recipient,
+		Body:      j.Body,
 		Mode:      string(j.Mode),
 		Priority:  j.Priority,
 		Attempts:  j.Attempts,
@@ -436,6 +439,10 @@ func toJobResponse(j *store.Job) jobResponse {
 	if j.ScheduledAt != nil {
 		at := j.ScheduledAt.UTC().Format(time.RFC3339)
 		resp.ScheduledAt = &at
+	}
+	if j.ExpiresAt != nil {
+		at := j.ExpiresAt.UTC().Format(time.RFC3339)
+		resp.ExpiresAt = &at
 	}
 	if j.CompletedAt != nil {
 		at := j.CompletedAt.UTC().Format(time.RFC3339)
