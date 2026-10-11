@@ -30,7 +30,7 @@ TAG   ?= $(VERSION)
 .DEFAULT_GOAL := help
 .PHONY: help build run test test-race cover lint fmt vet tidy \
         db-up db-down migrate migrate-down psql proto clean check \
-        docker-build docker-run test-integration
+        docker-build docker-run test-integration ui ui-install ui-dev ui-lint
 
 help: ## Show this help
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -85,6 +85,26 @@ tidy: ## Tidy go.mod / go.sum
 	$(GO) mod tidy
 
 check: lint test ## What CI should run at minimum
+
+## ---------------------------------------------------------------------------
+## dashboard (ui/)
+##
+## Optional for Go work: without a build, gatewayd compiles and serves a page
+## at /ui/ saying the dashboard is not included. `make ui build` embeds it.
+## ---------------------------------------------------------------------------
+
+ui-install: ## Install the dashboard's npm dependencies
+	cd ui && npm ci --no-audit --no-fund
+
+ui: ## Build the dashboard into ui/dist, for go:embed
+	@[ -d ui/node_modules ] || $(MAKE) --no-print-directory ui-install
+	cd ui && npm run build
+
+ui-dev: ## Run the dashboard with hot reload, proxying the API to localhost:8080
+	cd ui && npm run dev
+
+ui-lint: ## Type-check the dashboard
+	cd ui && npm run lint
 
 ## ---------------------------------------------------------------------------
 ## docker

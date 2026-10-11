@@ -42,6 +42,7 @@ import (
 	"github.com/KGMA74/relaix-server/scheduler"
 	"github.com/KGMA74/relaix-server/store/postgres"
 	"github.com/KGMA74/relaix-server/token"
+	"github.com/KGMA74/relaix-server/ui"
 )
 
 // version is overridden at build time:
@@ -157,6 +158,7 @@ func run(args []string) error {
 		Handler: api.New(st, h, enrollment, api.Options{
 			APIKey:    cfg.APIKey,
 			PublicURL: cfg.PublicURL,
+			UI:        ui.FS(),
 			Pinger:    st,
 			Logger:    logger,
 		}).Handler(),

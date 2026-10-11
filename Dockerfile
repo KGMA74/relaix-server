@@ -1,3 +1,19 @@
+# Dashboard stage.
+#
+# The operator dashboard (ui/) is a Vite build compiled into the binary with
+# go:embed. Node exists only here: the Go stage takes the built files and the
+# runtime image never sees a JavaScript toolchain.
+FROM node:22-alpine AS ui
+
+WORKDIR /ui
+
+# Lockfile first, for the same layer-caching reason as go.mod below.
+COPY ui/package.json ui/package-lock.json ./
+RUN npm ci --no-audit --no-fund
+
+COPY ui/ ./
+RUN npm run build
+
 # Build stage.
 #
 # The generated protobuf code is committed, so this needs nothing but the Go
@@ -12,6 +28,7 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
+COPY --from=ui /ui/dist ./ui/dist
 
 ARG VERSION=dev
 

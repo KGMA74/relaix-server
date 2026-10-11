@@ -9,8 +9,10 @@ import (
 	"context"
 	"crypto/subtle"
 	"encoding/json"
+	"io/fs"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -45,6 +47,11 @@ type Options struct {
 	// MaxBodyBytes bounds a request body. Default 64 KiB: an SMS body is at
 	// most a few hundred bytes, so anything larger is a mistake or an attack.
 	MaxBodyBytes int64
+
+	// UI is the built dashboard, served under /ui/. Nil leaves the dashboard
+	// out entirely, which is what the API tests want: they exercise the API,
+	// not whatever front-end build happens to be on disk.
+	UI fs.FS
 
 	// Pinger backs the readiness probe. Nil makes /readyz answer purely on the
 	// process being up.
@@ -104,13 +111,18 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /admin/devices/enroll-token", s.handleEnrollToken)
 	mux.HandleFunc("GET /stats", s.handleStats)
 
+	if s.opts.UI != nil {
+		mux.Handle("GET "+uiPrefix, s.dashboard(s.opts.UI))
+		mux.Handle("GET /{$}", http.RedirectHandler(uiPrefix, http.StatusFound))
+	}
+
 	// Ordered outermost first: recovery has to wrap logging so a panic is still
 	// logged with its request id, and authentication runs inside both so
 	// rejected requests are recorded too.
 	return s.recover(s.logRequests(s.authenticate(mux)))
 }
 
-// publicPaths bypass authentication. Only the probes: an orchestrator's health
+// publicPaths bypass authentication. The probes: an orchestrator's health
 // check has no credentials to offer, and requiring them would get the gateway
 // restarted for being unauthenticated rather than for being unhealthy.
 var publicPaths = map[string]bool{
@@ -118,10 +130,22 @@ var publicPaths = map[string]bool{
 	"/readyz":  true,
 }
 
+// isPublic reports whether a path skips authentication: the probes, and the
+// dashboard's static files. The latter carry no data — every call the
+// dashboard makes for data goes to an authenticated route with the key the
+// operator typed in — and a login page that needed a key to load could never
+// ask for one. The bare "/ui" too, so the mux can redirect it to "/ui/": it
+// is the address people type, and answering it with a 401 reads as a wrong
+// key rather than a missing slash.
+func isPublic(p string) bool {
+	return publicPaths[p] || p == "/" || p == strings.TrimSuffix(uiPrefix, "/") ||
+		strings.HasPrefix(p, uiPrefix)
+}
+
 // authenticate checks the bearer token.
 func (s *Server) authenticate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if s.opts.APIKey == "" || publicPaths[r.URL.Path] {
+		if s.opts.APIKey == "" || isPublic(r.URL.Path) {
 			next.ServeHTTP(w, r)
 			return
 		}

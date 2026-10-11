@@ -1,6 +1,9 @@
 # Build artifacts
 bin/
-dist/
+# The dashboard build is produced by `make ui` or the Docker ui stage. Its
+# placeholder stays tracked so go:embed has something to embed without one.
+/ui/dist/*
+!/ui/dist/.gitkeep
 *.exe
 *.exe~
 *.test

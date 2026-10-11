@@ -10,3 +10,8 @@ Makefile
 README.md
 LICENSE
 *_test.go
+
+# The dashboard is built inside the image from its sources and lockfile; a
+# host node_modules would be the wrong platform, and a host dist/ a stale build.
+ui/node_modules
+ui/dist

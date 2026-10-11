@@ -1,0 +1,279 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "@fontsource-variable/geist";
+@import "@fontsource-variable/geist-mono";
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * Two themes, both first-class. The class is set before first paint by the
+ * script in index.html; use-theme.ts keeps it in sync afterwards.
+ *
+ * Beyond shadcn's tokens: success / warning / info, so a job status or a
+ * device state is a meaning, not a Tailwind palette picked page by page.
+ */
+:root {
+  --radius: 0.5rem;
+
+  --background: #f5f6fa;
+  --foreground: #15171c;
+  --card: #ffffff;
+  --card-foreground: #15171c;
+  --popover: #ffffff;
+  --popover-foreground: #15171c;
+
+  --primary: #4f46e5;
+  --primary-foreground: #ffffff;
+  --secondary: #eceef4;
+  --secondary-foreground: #15171c;
+  --muted: #eceef4;
+  --muted-foreground: #5c6475;
+  --accent: #e6e8f0;
+  --accent-foreground: #15171c;
+  --destructive: #c62828;
+  --destructive-foreground: #ffffff;
+  --border: #dfe2ea;
+  --input: #d5d9e3;
+  --ring: #4f46e5;
+
+  --success: #15803d;
+  --success-foreground: #ffffff;
+  --warning: #b45309;
+  --warning-foreground: #ffffff;
+  --info: #0369a1;
+  --info-foreground: #ffffff;
+
+  --sidebar: #ffffff;
+  --sidebar-foreground: #2d333d;
+  --sidebar-primary: #4f46e5;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #eef0fb;
+  --sidebar-accent-foreground: #3730a3;
+  --sidebar-border: #e3e6ee;
+  --sidebar-ring: #4f46e5;
+
+  /* A short shadow and a diffuse one; otherwise every surface sits flat. */
+  --surface-shadow: 0 1px 2px rgb(16 24 40 / 0.05), 0 2px 6px -1px rgb(16 24 40 / 0.07);
+}
+
+.dark {
+  --background: #0e1116;
+  --foreground: #e6e8ee;
+  --card: #161a21;
+  --card-foreground: #e6e8ee;
+  --popover: #161a21;
+  --popover-foreground: #e6e8ee;
+
+  --primary: #818cf8;
+  --primary-foreground: #11122b;
+  --secondary: #1d222b;
+  --secondary-foreground: #e6e8ee;
+  --muted: #1d222b;
+  --muted-foreground: #8b93a3;
+  --accent: #222833;
+  --accent-foreground: #e6e8ee;
+  --destructive: #f87171;
+  --destructive-foreground: #2a0909;
+  --border: #252b35;
+  --input: #2c333e;
+  --ring: #818cf8;
+
+  --success: #34d399;
+  --success-foreground: #04231a;
+  --warning: #fbbf24;
+  --warning-foreground: #241a03;
+  --info: #38bdf8;
+  --info-foreground: #04192a;
+
+  --sidebar: #0b0d12;
+  --sidebar-foreground: #c5ccd8;
+  --sidebar-primary: #818cf8;
+  --sidebar-primary-foreground: #11122b;
+  --sidebar-accent: #1a1e27;
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-border: #1a1e27;
+  --sidebar-ring: #818cf8;
+
+  /* A shadow barely reads on dark: a faint top highlight lifts the surface instead. */
+  --surface-shadow: inset 0 1px 0 rgb(255 255 255 / 0.04), 0 1px 2px rgb(0 0 0 / 0.4),
+    0 4px 12px -2px rgb(0 0 0 / 0.3);
+}
+
+@theme {
+  --font-sans: "Geist Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "Geist Mono Variable", ui-monospace, "SFMono-Regular", "Cascadia Code", Consolas, monospace;
+
+  --text-title: 1.25rem;
+  --text-title--line-height: 1.75rem;
+  --text-title--letter-spacing: -0.015em;
+  --text-section: 0.6875rem;
+  --text-section--line-height: 1rem;
+  --text-section--letter-spacing: 0.07em;
+}
+
+@theme inline {
+  --shadow-surface: var(--surface-shadow);
+
+  --radius-sm: calc(var(--radius) - 2px);
+  --radius-md: var(--radius);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 2px);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+
+  /* Opaque tints: a status colour mixed into the card, never an alpha that lets a row show through. */
+  --color-success-soft: color-mix(in oklab, var(--success) 14%, var(--card));
+  --color-warning-soft: color-mix(in oklab, var(--warning) 14%, var(--card));
+  --color-danger-soft: color-mix(in oklab, var(--destructive) 14%, var(--card));
+  --color-info-soft: color-mix(in oklab, var(--info) 14%, var(--card));
+  --color-primary-soft: color-mix(in oklab, var(--primary) 14%, var(--card));
+  --color-success-line: color-mix(in oklab, var(--success) 35%, var(--card));
+  --color-warning-line: color-mix(in oklab, var(--warning) 35%, var(--card));
+  --color-danger-line: color-mix(in oklab, var(--destructive) 35%, var(--card));
+  --color-info-line: color-mix(in oklab, var(--info) 35%, var(--card));
+  --color-primary-line: color-mix(in oklab, var(--primary) 35%, var(--card));
+  --color-row-hover: color-mix(in oklab, var(--muted) 60%, var(--card));
+
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  html {
+    @apply font-sans;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+
+  /* Tailwind v4 dropped the pointer cursor on buttons; put it back on what is clickable. */
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  a[href],
+  label[for],
+  select,
+  summary {
+    cursor: pointer;
+  }
+
+  /* Thin, quiet scrollbars: the 15px Windows ones crowd the tables. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in oklab, var(--muted-foreground) 40%, transparent) transparent;
+  }
+
+  /* shadcn primitives draw their own ring; everything else gets an outline. */
+  :focus-visible:not([data-slot]) {
+    @apply outline-2 outline-offset-2 outline-ring;
+  }
+
+  :where(table, .tabular, .font-mono) {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/*
+ * The page vocabulary. Kept as classes rather than replaced by components
+ * everywhere: forms and tables use them densely, and one definition here keeps
+ * every page in step with the theme.
+ */
+@layer components {
+  .card {
+    @apply rounded-xl border border-border bg-card text-card-foreground shadow-surface;
+  }
+  .input {
+    @apply h-9 w-full min-w-0 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs outline-none
+      transition-[color,box-shadow] placeholder:text-muted-foreground
+      focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/40
+      disabled:cursor-not-allowed disabled:opacity-50 dark:bg-input/30;
+  }
+  textarea.input {
+    @apply h-auto py-2;
+  }
+  select.input {
+    @apply pr-8;
+  }
+  .label {
+    @apply mb-1.5 block text-sm font-medium text-foreground;
+  }
+  .btn-primary,
+  .btn-secondary,
+  .btn-danger {
+    @apply inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-md px-3.5 text-sm font-medium whitespace-nowrap
+      transition-colors outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50
+      disabled:pointer-events-none disabled:opacity-50;
+  }
+  .btn-primary {
+    @apply bg-primary text-primary-foreground hover:bg-primary/90;
+  }
+  .btn-secondary {
+    @apply border border-input bg-card text-foreground shadow-xs hover:bg-accent dark:bg-input/30 dark:hover:bg-input/50;
+  }
+  .btn-danger {
+    @apply bg-destructive text-destructive-foreground hover:bg-destructive/90;
+  }
+  .th {
+    @apply h-10 px-4 text-left align-middle text-section font-medium uppercase text-muted-foreground;
+  }
+  .td {
+    @apply px-4 py-3 align-middle text-sm;
+  }
+}
+
+@layer utilities {
+  @keyframes page-enter {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  .animate-page-enter {
+    animation: page-enter 180ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-page-enter {
+    animation: none;
+  }
+}
