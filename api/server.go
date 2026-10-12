@@ -20,6 +20,7 @@ import (
 	"github.com/KGMA74/relaix-server/events"
 	v1 "github.com/KGMA74/relaix-server/gen/smsgateway/v1"
 	"github.com/KGMA74/relaix-server/hub"
+	"github.com/KGMA74/relaix-server/scheduler"
 	"github.com/KGMA74/relaix-server/store"
 )
 
@@ -47,6 +48,12 @@ type Options struct {
 	// APIKey alone: its holder is the operator and sees every account. An
 	// embedding program supplies its own to give each caller an account.
 	Authenticator Authenticator
+
+	// Router says whose devices may send an account's messages — the same
+	// one the scheduler places jobs with, so an immediate send is refused
+	// exactly when the scheduler could not place it. Nil keeps every account
+	// on its own devices.
+	Router scheduler.Router
 
 	// PublicURL is the address agents should dial, encoded into enrollment QR
 	// codes alongside the token so a phone needs no manual configuration.
@@ -82,6 +89,9 @@ func (o *Options) withDefaults() {
 	}
 	if o.Logger == nil {
 		o.Logger = slog.Default()
+	}
+	if o.Router == nil {
+		o.Router = scheduler.OwnDevices{}
 	}
 }
 

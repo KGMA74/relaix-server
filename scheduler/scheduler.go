@@ -34,6 +34,24 @@ type Hub interface {
 	SendJob(ctx context.Context, deviceID uuid.UUID, msg *v1.ServerMessage) error
 }
 
+// Router decides whose devices may carry an account's messages.
+//
+// The default, OwnDevices, keeps every account on its own phones. A gateway
+// that sends for accounts without phones of their own routes them to the
+// devices of another account — a shared pool — by returning it here.
+type Router interface {
+	// Carriers returns the accounts whose devices may send jobs of account.
+	Carriers(ctx context.Context, account uuid.UUID) ([]uuid.UUID, error)
+}
+
+// OwnDevices routes each account's jobs to its own devices only.
+type OwnDevices struct{}
+
+// Carriers implements Router.
+func (OwnDevices) Carriers(_ context.Context, account uuid.UUID) ([]uuid.UUID, error) {
+	return []uuid.UUID{account}, nil
+}
+
 // Options configures a Scheduler. The zero value is usable.
 type Options struct {
 	// Interval between ticks. Default 1s: short enough that an SMS submitted
@@ -50,6 +68,10 @@ type Options struct {
 	// failed. Default 5. Delivery is at-least-once, so redispatch after a
 	// reconnect is normal; this bounds a job no device can stomach.
 	MaxAttempts int
+
+	// Router picks whose devices may send each account's jobs. Nil keeps
+	// every account on its own devices.
+	Router Router
 
 	// Events receives job status changes for the dashboard's live stream.
 	// Nil publishes nowhere.
@@ -74,6 +96,9 @@ func (o *Options) withDefaults() {
 	}
 	if o.Logger == nil {
 		o.Logger = slog.Default()
+	}
+	if o.Router == nil {
+		o.Router = OwnDevices{}
 	}
 }
 
@@ -139,10 +164,16 @@ type dispatch struct {
 // fleet is the tick's view of every device's rules and of what each was
 // handed recently, read once per tick: the hub knows who is ready, only the
 // store knows their policies and their send counts.
+//
+// A job sees the fleet through forAccounts: only the devices allowed to carry
+// it. The views share the send counts, so what one job is handed counts
+// against the caps every other job sees.
 type fleet struct {
 	devices map[uuid.UUID]*store.Device
 	sent    map[uuid.UUID]policy.Count
 	simSent map[uuid.UUID]map[int32]policy.Count
+	// all is every device the store knows, whatever the view.
+	all map[uuid.UUID]*store.Device
 }
 
 func newFleet(devices []*store.Device, counts []store.DispatchCount) fleet {
@@ -154,6 +185,7 @@ func newFleet(devices []*store.Device, counts []store.DispatchCount) fleet {
 	for _, d := range devices {
 		f.devices[d.ID] = d
 	}
+	f.all = f.devices
 	for _, c := range counts {
 		total := f.sent[c.DeviceID]
 		total.Hour += c.LastHour
@@ -164,6 +196,21 @@ func newFleet(devices []*store.Device, counts []store.DispatchCount) fleet {
 		}
 	}
 	return f
+}
+
+// forAccounts is the part of the fleet owned by accounts.
+func (f fleet) forAccounts(accounts []uuid.UUID) fleet {
+	view := f
+	view.devices = make(map[uuid.UUID]*store.Device)
+	for id, d := range f.all {
+		for _, a := range accounts {
+			if d.AccountID == a {
+				view.devices[id] = d
+				break
+			}
+		}
+	}
+	return view
 }
 
 func (f fleet) addSim(device uuid.UUID, sub int32, n policy.Count) {
@@ -211,12 +258,13 @@ func (f fleet) policyFor(id uuid.UUID) (policy.Policy, policy.Device) {
 	return d.Policy, pd
 }
 
-// enabled reports whether a device may be handed work. One the store does not
-// know is treated as enabled, like its policy: the hub listed it, and there
-// is nothing to say it was turned off.
+// enabled reports whether a device may be handed work: it is in the view, and
+// turned on. One outside the view — another account's, or one the store no
+// longer knows, deleted since the hub listed it — never is: nothing vouches
+// for whose messages it may carry.
 func (f fleet) enabled(id uuid.UUID) bool {
 	d, ok := f.devices[id]
-	return !ok || d.Enabled
+	return ok && d.Enabled
 }
 
 // anyAcceptsEver reports whether some enabled device's rules would ever take a
@@ -275,9 +323,21 @@ func (s *Scheduler) Tick(ctx context.Context) error {
 		// Devices claimed earlier in this same tick, so one pass does not hand
 		// every job to the same phone.
 		used := make(map[uuid.UUID]int, len(ready))
+		views := make(map[uuid.UUID]fleet)
 
 		for _, job := range jobs {
-			d, sub, ok := s.decide(ctx, tx, job, ready, devices, used, now)
+			view, ok := views[job.AccountID]
+			if !ok {
+				carriers, err := s.opts.Router.Carriers(ctx, job.AccountID)
+				if err != nil {
+					// Left pending, not failed: the next tick asks again.
+					s.opts.Logger.Warn("could not route account", "account_id", job.AccountID, "err", err)
+					continue
+				}
+				view = devices.forAccounts(carriers)
+				views[job.AccountID] = view
+			}
+			d, sub, ok := s.decide(ctx, tx, job, ready, view, used, now)
 			if !ok {
 				continue
 			}
@@ -350,6 +410,15 @@ func (s *Scheduler) decide(
 		var requestedSub int32
 		if job.SubscriptionID != nil {
 			requestedSub = *job.SubscriptionID
+		}
+		if _, mine := devices.devices[want]; !mine {
+			if _, known := devices.all[want]; known {
+				// Never "not now": the device will not come to serve this
+				// account by waiting.
+				s.fail(ctx, tx, job, "device_not_allowed",
+					"the requested device does not send for this account", now)
+				return uuid.Nil, 0, false
+			}
 		}
 		p, pd := devices.policyFor(want)
 		if !devices.enabled(want) {

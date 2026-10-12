@@ -88,9 +88,14 @@ func newScheduler(t *testing.T, st store.Store, h Hub, opts Options) *Scheduler 
 
 func ptr[T any](v T) *T { return &v }
 
+// phone is an enabled device of the default account, known to the store.
+func phone(st *storetest.Store) uuid.UUID {
+	return st.SeedDevice(&store.Device{Enabled: true}).ID
+}
+
 func TestTickAssignsPendingJob(t *testing.T) {
 	st := storetest.New()
-	dev := uuid.New()
+	dev := phone(st)
 	h := newFakeHub(dev)
 	s := newScheduler(t, st, h, Options{})
 
@@ -125,7 +130,7 @@ func TestTickAssignsPendingJob(t *testing.T) {
 
 func TestTickHonoursPriority(t *testing.T) {
 	st := storetest.New()
-	dev := uuid.New()
+	dev := phone(st)
 	h := newFakeHub(dev)
 	// One job per tick, so the order the scheduler picks is observable.
 	s := newScheduler(t, st, h, Options{BatchSize: 1})
@@ -147,7 +152,7 @@ func TestTickHonoursPriority(t *testing.T) {
 
 func TestExplicitDeviceIsUsed(t *testing.T) {
 	st := storetest.New()
-	wanted, other := uuid.New(), uuid.New()
+	wanted, other := phone(st), phone(st)
 	h := newFakeHub(other, wanted)
 	s := newScheduler(t, st, h, Options{})
 
@@ -175,7 +180,7 @@ func TestExplicitDeviceIsUsed(t *testing.T) {
 // would be wrong in a way the caller cannot detect.
 func TestExplicitDeviceIsNeverSubstituted(t *testing.T) {
 	st := storetest.New()
-	absent, available := uuid.New(), uuid.New()
+	absent, available := phone(st), phone(st)
 	h := newFakeHub(available)
 	s := newScheduler(t, st, h, Options{})
 
@@ -220,8 +225,8 @@ func TestImmediateFailsFastWhenNoDeviceReady(t *testing.T) {
 
 func TestImmediateFailsFastWhenRequestedDeviceNotReady(t *testing.T) {
 	st := storetest.New()
-	absent := uuid.New()
-	h := newFakeHub(uuid.New())
+	absent := phone(st)
+	h := newFakeHub(phone(st))
 	s := newScheduler(t, st, h, Options{})
 
 	job := st.SeedJob(&store.Job{
@@ -259,7 +264,7 @@ func TestQueuedWaitsThenSendsWhenADeviceAppears(t *testing.T) {
 	}
 
 	// A phone comes online.
-	dev := uuid.New()
+	dev := phone(st)
 	h.mu.Lock()
 	h.ready = append(h.ready, hub.DeviceState{DeviceID: dev})
 	h.mu.Unlock()
@@ -274,7 +279,7 @@ func TestQueuedWaitsThenSendsWhenADeviceAppears(t *testing.T) {
 
 func TestScheduledJobIsHeldBackUntilDue(t *testing.T) {
 	st := storetest.New()
-	dev := uuid.New()
+	dev := phone(st)
 	h := newFakeHub(dev)
 
 	now := testNow
@@ -307,7 +312,7 @@ func TestScheduledJobIsHeldBackUntilDue(t *testing.T) {
 // device availability.
 func TestExpiredJobIsFailedNotSent(t *testing.T) {
 	st := storetest.New()
-	dev := uuid.New()
+	dev := phone(st)
 	h := newFakeHub(dev)
 	s := newScheduler(t, st, h, Options{})
 
@@ -336,7 +341,7 @@ func TestExpiredJobIsFailedNotSent(t *testing.T) {
 
 func TestJobExceedingMaxAttemptsIsFailed(t *testing.T) {
 	st := storetest.New()
-	h := newFakeHub(uuid.New())
+	h := newFakeHub(phone(st))
 	s := newScheduler(t, st, h, Options{MaxAttempts: 3})
 
 	job := st.SeedJob(&store.Job{Recipient: "+1", Body: "x", Mode: store.ModeQueued, Attempts: 3})
@@ -358,7 +363,7 @@ func TestJobExceedingMaxAttemptsIsFailed(t *testing.T) {
 // job stuck assigned to a phone that never got it.
 func TestJobIsReleasedWhenTheDeviceIsUnreachable(t *testing.T) {
 	st := storetest.New()
-	dev := uuid.New()
+	dev := phone(st)
 	h := newFakeHub(dev)
 	h.sendErr[dev] = hub.ErrDeviceBusy
 	s := newScheduler(t, st, h, Options{})
@@ -387,7 +392,7 @@ func TestJobIsReleasedWhenTheDeviceIsUnreachable(t *testing.T) {
 // on one phone.
 func TestLoadIsSpreadAcrossReadyDevices(t *testing.T) {
 	st := storetest.New()
-	a, b, c := uuid.New(), uuid.New(), uuid.New()
+	a, b, c := phone(st), phone(st), phone(st)
 	h := newFakeHub(a, b, c)
 	s := newScheduler(t, st, h, Options{})
 
@@ -408,7 +413,7 @@ func TestLoadIsSpreadAcrossReadyDevices(t *testing.T) {
 
 func TestBatchSizeBoundsOneTick(t *testing.T) {
 	st := storetest.New()
-	h := newFakeHub(uuid.New())
+	h := newFakeHub(phone(st))
 	s := newScheduler(t, st, h, Options{BatchSize: 2})
 
 	for range 5 {
@@ -425,7 +430,7 @@ func TestBatchSizeBoundsOneTick(t *testing.T) {
 
 func TestTerminalJobsAreNotReconsidered(t *testing.T) {
 	st := storetest.New()
-	h := newFakeHub(uuid.New())
+	h := newFakeHub(phone(st))
 	s := newScheduler(t, st, h, Options{})
 
 	for _, status := range []store.JobStatus{store.JobSent, store.JobDelivered, store.JobFailed, store.JobCancelled, store.JobAssigned} {
@@ -442,7 +447,7 @@ func TestTerminalJobsAreNotReconsidered(t *testing.T) {
 
 func TestAssignmentIsAudited(t *testing.T) {
 	st := storetest.New()
-	dev := uuid.New()
+	dev := phone(st)
 	h := newFakeHub(dev)
 	s := newScheduler(t, st, h, Options{})
 
@@ -482,7 +487,7 @@ func TestTickPropagatesHubError(t *testing.T) {
 
 func TestTickPropagatesStoreError(t *testing.T) {
 	st := storetest.New()
-	h := newFakeHub(uuid.New())
+	h := newFakeHub(phone(st))
 	s := newScheduler(t, st, h, Options{})
 
 	sentinel := errors.New("database is down")
@@ -497,7 +502,7 @@ func TestTickPropagatesStoreError(t *testing.T) {
 // everything anyway.
 func TestRunSurvivesAFailingTick(t *testing.T) {
 	st := storetest.New()
-	dev := uuid.New()
+	dev := phone(st)
 	h := newFakeHub(dev)
 	s := newScheduler(t, st, h, Options{Interval: 5 * time.Millisecond})
 
@@ -782,5 +787,116 @@ func TestDisabledButConnectedDeviceGetsNoJob(t *testing.T) {
 	}
 	if got := st.JobByID(pinned.ID).Status; got != store.JobPending {
 		t.Errorf("job pinned to the disabled device is %q, want pending until it is re-enabled", got)
+	}
+}
+
+// --- accounts ---------------------------------------------------------------
+
+// routerFunc adapts a function to Router.
+type routerFunc func(account uuid.UUID) []uuid.UUID
+
+func (f routerFunc) Carriers(_ context.Context, account uuid.UUID) ([]uuid.UUID, error) {
+	return f(account), nil
+}
+
+func TestJobsGoOnlyToTheirAccountsDevices(t *testing.T) {
+	st := storetest.New()
+	a, b := uuid.New(), uuid.New()
+	devA := st.SeedDevice(&store.Device{Enabled: true, AccountID: a}).ID
+	devB := st.SeedDevice(&store.Device{Enabled: true, AccountID: b}).ID
+	h := newFakeHub(devA, devB)
+	s := newScheduler(t, st, h, Options{})
+
+	var jobsA, jobsB []uuid.UUID
+	for range 3 {
+		jobsA = append(jobsA, st.SeedJob(&store.Job{AccountID: a, Recipient: "+33600000000", Body: "a", Mode: store.ModeQueued}).ID)
+		jobsB = append(jobsB, st.SeedJob(&store.Job{AccountID: b, Recipient: "+33600000000", Body: "b", Mode: store.ModeQueued}).ID)
+	}
+	if err := s.Tick(context.Background()); err != nil {
+		t.Fatalf("Tick: %v", err)
+	}
+
+	for want, ids := range map[uuid.UUID][]uuid.UUID{devA: jobsA, devB: jobsB} {
+		for _, id := range ids {
+			if got := st.JobByID(id).AssignedDeviceID; got == nil || *got != want {
+				t.Errorf("job %s went to %v, want its account's device %s", id, got, want)
+			}
+		}
+	}
+}
+
+// An account without phones waits; it never borrows another account's.
+func TestAnAccountWithoutDevicesWaits(t *testing.T) {
+	st := storetest.New()
+	dev := phone(st)
+	h := newFakeHub(dev)
+	s := newScheduler(t, st, h, Options{})
+
+	job := st.SeedJob(&store.Job{AccountID: uuid.New(), Recipient: "+33600000000", Body: "x", Mode: store.ModeQueued})
+	if err := s.Tick(context.Background()); err != nil {
+		t.Fatalf("Tick: %v", err)
+	}
+	if got := st.JobByID(job.ID); got.Status != store.JobPending {
+		t.Errorf("status = %s, want pending", got.Status)
+	}
+	if h.totalSent() != 0 {
+		t.Errorf("sent %d, want 0", h.totalSent())
+	}
+}
+
+// A router can lend an account another's devices: a shared pool.
+func TestRouterLendsAPool(t *testing.T) {
+	st := storetest.New()
+	pool, customer := uuid.New(), uuid.New()
+	dev := st.SeedDevice(&store.Device{Enabled: true, AccountID: pool}).ID
+	h := newFakeHub(dev)
+	s := newScheduler(t, st, h, Options{Router: routerFunc(func(acc uuid.UUID) []uuid.UUID {
+		if acc == customer {
+			return []uuid.UUID{pool}
+		}
+		return []uuid.UUID{acc}
+	})})
+
+	job := st.SeedJob(&store.Job{AccountID: customer, Recipient: "+33600000000", Body: "x", Mode: store.ModeQueued})
+	if err := s.Tick(context.Background()); err != nil {
+		t.Fatalf("Tick: %v", err)
+	}
+	if got := st.JobByID(job.ID).AssignedDeviceID; got == nil || *got != dev {
+		t.Errorf("assigned %v, want the pool device", got)
+	}
+}
+
+func TestRequestingAnotherAccountsDeviceFails(t *testing.T) {
+	st := storetest.New()
+	other := st.SeedDevice(&store.Device{Enabled: true, AccountID: uuid.New()}).ID
+	h := newFakeHub(other)
+	s := newScheduler(t, st, h, Options{})
+
+	job := st.SeedJob(&store.Job{Recipient: "+33600000000", Body: "x", Mode: store.ModeQueued, RequestedDeviceID: &other})
+	if err := s.Tick(context.Background()); err != nil {
+		t.Fatalf("Tick: %v", err)
+	}
+	got := st.JobByID(job.ID)
+	if got.Status != store.JobFailed || got.ErrorCode != "device_not_allowed" {
+		t.Errorf("status %s / %q, want failed / device_not_allowed", got.Status, got.ErrorCode)
+	}
+	if h.totalSent() != 0 {
+		t.Errorf("sent %d, want 0", h.totalSent())
+	}
+}
+
+// A device the store no longer knows — deleted while still connected — gets
+// no work.
+func TestUnknownConnectedDeviceGetsNoJob(t *testing.T) {
+	st := storetest.New()
+	h := newFakeHub(uuid.New())
+	s := newScheduler(t, st, h, Options{})
+
+	job := st.SeedJob(&store.Job{Recipient: "+33600000000", Body: "x", Mode: store.ModeQueued})
+	if err := s.Tick(context.Background()); err != nil {
+		t.Fatalf("Tick: %v", err)
+	}
+	if got := st.JobByID(job.ID); got.Status != store.JobPending || h.totalSent() != 0 {
+		t.Errorf("status %s, sent %d; want pending, 0", got.Status, h.totalSent())
 	}
 }

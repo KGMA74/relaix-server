@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -124,7 +125,7 @@ func (s *Server) handleSend(w http.ResponseWriter, r *http.Request) {
 	// The scheduler enforces this too — a device can vanish between here and
 	// the next tick — but checking here is what makes the promise synchronous.
 	if job.Mode == store.ModeImmediate && job.ScheduledAt == nil {
-		ok, err := s.hasReadyDevice(ctx, p, job.RequestedDeviceID)
+		ok, err := s.hasReadyDevice(ctx, job.AccountID, job.RequestedDeviceID)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "internal", "could not check device availability")
 			return
@@ -401,22 +402,29 @@ func (s *Server) buildJobs(req *sendRequest) ([]*store.Job, *apiError) {
 }
 
 // hasReadyDevice reports whether an immediate send could be placed right now.
-// Only the principal's own devices count: another account's ready phone will
-// never be given this job.
-func (s *Server) hasReadyDevice(ctx context.Context, p Principal, requested *uuid.UUID) (bool, error) {
+// Only the devices the scheduler would hand the job count: enabled, and owned
+// by an account the router lets carry it.
+func (s *Server) hasReadyDevice(ctx context.Context, account uuid.UUID, requested *uuid.UUID) (bool, error) {
 	ready, err := s.hub.ListReady(ctx)
+	if err != nil || len(ready) == 0 {
+		return false, err
+	}
+	carriers, err := s.opts.Router.Carriers(ctx, account)
 	if err != nil {
 		return false, err
 	}
-	visible, err := s.visibleDevices(ctx, p)
+	all, err := s.store.Devices().List(ctx, store.AllAccounts())
 	if err != nil {
 		return false, err
+	}
+	usable := make(map[uuid.UUID]bool, len(all))
+	for _, d := range all {
+		if d.Enabled && slices.Contains(carriers, d.AccountID) {
+			usable[d.ID] = true
+		}
 	}
 	for _, d := range ready {
-		if visible != nil && !visible[d.DeviceID] {
-			continue
-		}
-		if requested == nil || d.DeviceID == *requested {
+		if usable[d.DeviceID] && (requested == nil || d.DeviceID == *requested) {
 			return true, nil
 		}
 	}

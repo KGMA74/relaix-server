@@ -246,6 +246,7 @@ func TestImmediateSendFailsFastWithNoReadyDevice(t *testing.T) {
 func TestImmediateSendSucceedsWithAReadyDevice(t *testing.T) {
 	h := newHarness(t, Options{APIKey: testAPIKey})
 	_, dev := readyDevice()
+	dev.DeviceID = h.store.SeedDevice(&store.Device{Enabled: true}).ID
 	h.hub.ready = []hub.DeviceState{dev}
 
 	rec := h.do(t, http.MethodPost, "/send", sendRequest{

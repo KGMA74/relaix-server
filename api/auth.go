@@ -156,21 +156,3 @@ func (s *Server) ownedDevice(w http.ResponseWriter, r *http.Request, id uuid.UUI
 	}
 	return dev, true
 }
-
-// visibleDevices is the set of device ids the principal may see, or nil when
-// it sees them all — so callers filtering the hub's live lists skip the store
-// read in the single-tenant case.
-func (s *Server) visibleDevices(ctx context.Context, p Principal) (map[uuid.UUID]bool, error) {
-	if p.AllAccounts {
-		return nil, nil
-	}
-	devs, err := s.store.Devices().List(ctx, p.Scope())
-	if err != nil {
-		return nil, err
-	}
-	out := make(map[uuid.UUID]bool, len(devs))
-	for _, d := range devs {
-		out[d.ID] = true
-	}
-	return out, nil
-}

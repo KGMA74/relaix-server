@@ -258,3 +258,28 @@ func (h *harness) withBody(t *testing.T, key, method, path, body string) *httpte
 	h.handler.ServeHTTP(rec, req)
 	return rec
 }
+
+// An account lent a pool by the router can send immediately on the pool's
+// phones, as the scheduler would place it.
+func TestImmediateSendFollowsTheRouter(t *testing.T) {
+	var ts *tenants
+	ts = newTenants(t, Options{Router: carriersFunc(func(acc uuid.UUID) []uuid.UUID {
+		if acc == ts.b {
+			return []uuid.UUID{ts.a}
+		}
+		return []uuid.UUID{acc}
+	})})
+	dev := ts.device(t, ts.a)
+	ts.hub.ready = append(ts.hub.ready, readyState(dev.ID))
+
+	immediate := `{"recipient":"+33600000000","body":"hi","mode":"immediate"}`
+	if rec := ts.send(t, keyB, immediate); rec.Code != http.StatusAccepted {
+		t.Errorf("B on A's pool = %d %s, want 202", rec.Code, rec.Body)
+	}
+}
+
+type carriersFunc func(uuid.UUID) []uuid.UUID
+
+func (f carriersFunc) Carriers(_ context.Context, acc uuid.UUID) ([]uuid.UUID, error) {
+	return f(acc), nil
+}
