@@ -16,7 +16,10 @@ LDFLAGS     := -X main.version=$(VERSION)
 
 # Local throwaway Postgres used by `make db-up` / `make migrate`.
 PG_CONTAINER ?= relaix-pg
-PG_PORT      ?= 55432
+# Below 49152 on purpose: Windows (Hyper-V, WSL) reserves blocks of the
+# dynamic range above it, and Docker Desktop then starts the container without
+# the port mapping, and without an error.
+PG_PORT      ?= 15432
 PG_IMAGE     ?= postgres:17-alpine
 DATABASE_URL ?= postgres://postgres:relaix@localhost:$(PG_PORT)/relaix?sslmode=disable
 
@@ -125,9 +128,15 @@ db-up: ## Start a throwaway Postgres and wait for it
 	docker run -d --name $(PG_CONTAINER) \
 		-e POSTGRES_PASSWORD=relaix -e POSTGRES_DB=relaix \
 		-p $(PG_PORT):5432 $(PG_IMAGE) >/dev/null
+	@if [ -z "$$(docker port $(PG_CONTAINER) 5432 2>/dev/null)" ]; then \
+		echo "port $(PG_PORT) was not published (reserved on this host?); try PG_PORT=<another>"; \
+		docker rm -f $(PG_CONTAINER) >/dev/null; exit 1; \
+	fi
 	@echo "waiting for postgres..."
+	@# -h 127.0.0.1, not the socket: on first boot Postgres runs a temporary
+	@# server on the socket only, answers pg_isready there, then restarts.
 	@for i in $$(seq 1 45); do \
-		if docker exec $(PG_CONTAINER) pg_isready -U postgres -d relaix >/dev/null 2>&1; then \
+		if docker exec $(PG_CONTAINER) pg_isready -h 127.0.0.1 -U postgres -d relaix >/dev/null 2>&1; then \
 			echo "ready on port $(PG_PORT)"; exit 0; \
 		fi; sleep 1; \
 	done; echo "postgres did not become ready"; exit 1
