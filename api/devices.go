@@ -38,6 +38,11 @@ func (s *Server) handleDeleteDevice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	dev, ok := s.ownedDevice(w, r, id)
+	if !ok {
+		return
+	}
+
 	err := s.store.Devices().Delete(r.Context(), id)
 	switch {
 	case errors.Is(err, store.ErrNotFound):
@@ -50,7 +55,7 @@ func (s *Server) handleDeleteDevice(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.opts.Logger.Info("device deleted", "device_id", id)
-	s.opts.Events.Publish(events.Event{Type: events.DeviceRemoved, DeviceID: id.String()})
+	s.opts.Events.Publish(events.Event{Type: events.DeviceRemoved, DeviceID: id.String(), AccountID: dev.AccountID})
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -79,6 +84,10 @@ func (s *Server) handlePatchDevice(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
+	owned, ok := s.ownedDevice(w, r, id)
+	if !ok {
+		return
+	}
 	err := s.store.Devices().SetEnabled(ctx, id, *req.Enabled)
 	switch {
 	case errors.Is(err, store.ErrNotFound):
@@ -99,7 +108,7 @@ func (s *Server) handlePatchDevice(w http.ResponseWriter, r *http.Request) {
 			s.opts.Logger.Warn("could not disconnect disabled device", "device_id", id, "err", err)
 		}
 	}
-	s.opts.Events.Publish(events.Event{Type: events.DeviceUpdated, DeviceID: id.String()})
+	s.opts.Events.Publish(events.Event{Type: events.DeviceUpdated, DeviceID: id.String(), AccountID: owned.AccountID})
 
 	device, err := s.store.Devices().Get(ctx, id)
 	if err != nil {
@@ -224,7 +233,7 @@ func toSimResponses(info []store.SimInfo, health []store.SimHealth) []simRespons
 func (s *Server) handleListDevices(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	stored, err := s.store.Devices().List(ctx, store.AllAccounts())
+	stored, err := s.store.Devices().List(ctx, principal(r).Scope())
 	if err != nil {
 		s.opts.Logger.Error("could not list devices", "err", err)
 		writeError(w, http.StatusInternalServerError, "internal", "could not list devices")
@@ -355,7 +364,7 @@ func (s *Server) handleEnrollToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	minted, err := s.enroller.MintEnrollmentToken(r.Context(), uuid.Nil)
+	minted, err := s.enroller.MintEnrollmentToken(r.Context(), principal(r).AccountID)
 	if err != nil {
 		s.opts.Logger.Error("could not mint enrollment token", "err", err)
 		writeError(w, http.StatusInternalServerError, "internal", "could not mint token")

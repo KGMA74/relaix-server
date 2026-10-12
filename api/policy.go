@@ -42,6 +42,10 @@ func (s *Server) handlePutPolicy(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
+	dev, ok := s.ownedDevice(w, r, id)
+	if !ok {
+		return
+	}
 	stored, err := s.store.Devices().SetPolicy(ctx, id, in)
 	switch {
 	case errors.Is(err, store.ErrNotFound):
@@ -55,7 +59,7 @@ func (s *Server) handlePutPolicy(w http.ResponseWriter, r *http.Request) {
 
 	s.pushPolicy(r, id, stored)
 	s.opts.Logger.Info("device rules updated", "device_id", id, "version", stored.Version)
-	s.opts.Events.Publish(events.Event{Type: events.DeviceUpdated, DeviceID: id.String()})
+	s.opts.Events.Publish(events.Event{Type: events.DeviceUpdated, DeviceID: id.String(), AccountID: dev.AccountID})
 	writeJSON(w, http.StatusOK, stored)
 }
 

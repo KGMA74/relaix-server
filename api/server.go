@@ -7,7 +7,6 @@ package api
 
 import (
 	"context"
-	"crypto/subtle"
 	"encoding/json"
 	"io/fs"
 	"log/slog"
@@ -43,6 +42,11 @@ type Options struct {
 	// reasonable behind a trusted proxy — and is logged loudly at startup,
 	// because an open /admin endpoint mints credentials for joining the fleet.
 	APIKey string
+
+	// Authenticator decides who a request acts for. Nil authenticates with
+	// APIKey alone: its holder is the operator and sees every account. An
+	// embedding program supplies its own to give each caller an account.
+	Authenticator Authenticator
 
 	// PublicURL is the address agents should dial, encoded into enrollment QR
 	// codes alongside the token so a phone needs no manual configuration.
@@ -92,8 +96,11 @@ type Server struct {
 // New creates a Server.
 func New(s store.Store, h Hub, e Enroller, opts Options) *Server {
 	opts.withDefaults()
-	if opts.APIKey == "" {
-		opts.Logger.Warn("API authentication is disabled; /admin can mint enrollment tokens")
+	if opts.Authenticator == nil {
+		if opts.APIKey == "" {
+			opts.Logger.Warn("API authentication is disabled; /admin can mint enrollment tokens")
+		}
+		opts.Authenticator = SharedKey(opts.APIKey)
 	}
 	return &Server{store: s, hub: h, enroller: e, opts: opts}
 }
@@ -152,30 +159,6 @@ var publicPaths = map[string]bool{
 func isPublic(p string) bool {
 	return publicPaths[p] || p == "/" || p == strings.TrimSuffix(uiPrefix, "/") ||
 		strings.HasPrefix(p, uiPrefix)
-}
-
-// authenticate checks the bearer token.
-func (s *Server) authenticate(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if s.opts.APIKey == "" || isPublic(r.URL.Path) {
-			next.ServeHTTP(w, r)
-			return
-		}
-
-		const prefix = "Bearer "
-		header := r.Header.Get("Authorization")
-		if len(header) <= len(prefix) || header[:len(prefix)] != prefix {
-			writeError(w, http.StatusUnauthorized, "unauthorized", "missing bearer token")
-			return
-		}
-		// Constant time, so the comparison does not leak the key one byte at a
-		// time to anyone willing to measure.
-		if subtle.ConstantTimeCompare([]byte(header[len(prefix):]), []byte(s.opts.APIKey)) != 1 {
-			writeError(w, http.StatusUnauthorized, "unauthorized", "invalid api key")
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
 }
 
 // logRequests records one line per request, with a generated id echoed back so

@@ -46,6 +46,7 @@ func (s *Server) Enroll(ctx context.Context, req *v1.EnrollRequest) (*v1.EnrollR
 		Type:       events.DeviceEnrolled,
 		DeviceID:   enrolled.Device.ID.String(),
 		Reenrolled: enrolled.Reenrolled,
+		AccountID:  enrolled.Device.AccountID,
 	})
 
 	return &v1.EnrollResponse{

@@ -78,6 +78,7 @@ type jobResponse struct {
 
 func (s *Server) handleSend(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+	p := principal(r)
 
 	var req sendRequest
 	if err := decodeJSON(w, r, s.opts.MaxBodyBytes, &req); err != nil {
@@ -90,11 +91,30 @@ func (s *Server) handleSend(w http.ResponseWriter, r *http.Request) {
 		writeError(w, apiErr.status, apiErr.code, apiErr.message)
 		return
 	}
+	for _, j := range jobs {
+		j.AccountID = p.AccountID
+	}
 	// The shape of the request decides the shape of the reply: a caller who
 	// sent one recipient gets the object it always got, and only the plural
 	// form gets a list.
 	batch := len(req.Recipients) > 0
 	job := jobs[0]
+
+	// A device of another account is answered like one that does not exist.
+	// The operator, who sees every account, keeps today's leniency: an
+	// unknown id is accepted and the scheduler fails the job if it never
+	// shows up.
+	if job.RequestedDeviceID != nil && !p.AllAccounts {
+		dev, err := s.store.Devices().Get(ctx, *job.RequestedDeviceID)
+		if errors.Is(err, store.ErrNotFound) || (err == nil && !p.Owns(dev.AccountID)) {
+			writeError(w, http.StatusBadRequest, "unknown_device", "no such device")
+			return
+		}
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal", "could not read device")
+			return
+		}
+	}
 
 	// Immediate means fail fast, and the caller learns now rather than from a
 	// callback four minutes later: for an interactive flow like an OTP, a clean
@@ -104,7 +124,7 @@ func (s *Server) handleSend(w http.ResponseWriter, r *http.Request) {
 	// The scheduler enforces this too — a device can vanish between here and
 	// the next tick — but checking here is what makes the promise synchronous.
 	if job.Mode == store.ModeImmediate && job.ScheduledAt == nil {
-		ok, err := s.hasReadyDevice(ctx, job.RequestedDeviceID)
+		ok, err := s.hasReadyDevice(ctx, p, job.RequestedDeviceID)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "internal", "could not check device availability")
 			return
@@ -139,7 +159,7 @@ func (s *Server) handleSend(w http.ResponseWriter, r *http.Request) {
 
 	for _, c := range created {
 		s.event(ctx, c.ID, store.JobPending, "submitted via api")
-		s.opts.Events.Publish(events.Event{Type: events.JobCreated, JobID: c.ID.String(), Status: string(c.Status)})
+		s.opts.Events.Publish(events.Event{Type: events.JobCreated, JobID: c.ID.String(), Status: string(c.Status), AccountID: c.AccountID})
 	}
 
 	// 202, not 201: the gateway has accepted responsibility for the message,
@@ -162,17 +182,10 @@ func (s *Server) handleGetJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	job, err := s.store.Jobs().Get(r.Context(), id)
-	if errors.Is(err, store.ErrNotFound) {
-		writeError(w, http.StatusNotFound, "not_found", "no such job")
+	job, ok := s.ownedJob(w, r, id)
+	if !ok {
 		return
 	}
-	if err != nil {
-		s.opts.Logger.Error("could not read job", "job_id", id, "err", err)
-		writeError(w, http.StatusInternalServerError, "internal", "could not read job")
-		return
-	}
-
 	writeJSON(w, http.StatusOK, toJobResponse(job))
 }
 
@@ -182,6 +195,10 @@ func (s *Server) handleCancelJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := r.Context()
+	owned, ok := s.ownedJob(w, r, id)
+	if !ok {
+		return
+	}
 
 	err := s.store.Jobs().Cancel(ctx, id, "cancelled via api")
 	switch {
@@ -201,7 +218,7 @@ func (s *Server) handleCancelJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.event(ctx, id, store.JobCancelled, "cancelled via api")
-	s.opts.Events.Publish(events.Event{Type: events.JobUpdated, JobID: id.String(), Status: string(store.JobCancelled)})
+	s.opts.Events.Publish(events.Event{Type: events.JobUpdated, JobID: id.String(), Status: string(store.JobCancelled), AccountID: owned.AccountID})
 
 	job, err := s.store.Jobs().Get(ctx, id)
 	if err != nil {
@@ -384,16 +401,22 @@ func (s *Server) buildJobs(req *sendRequest) ([]*store.Job, *apiError) {
 }
 
 // hasReadyDevice reports whether an immediate send could be placed right now.
-func (s *Server) hasReadyDevice(ctx context.Context, requested *uuid.UUID) (bool, error) {
+// Only the principal's own devices count: another account's ready phone will
+// never be given this job.
+func (s *Server) hasReadyDevice(ctx context.Context, p Principal, requested *uuid.UUID) (bool, error) {
 	ready, err := s.hub.ListReady(ctx)
 	if err != nil {
 		return false, err
 	}
-	if requested == nil {
-		return len(ready) > 0, nil
+	visible, err := s.visibleDevices(ctx, p)
+	if err != nil {
+		return false, err
 	}
 	for _, d := range ready {
-		if d.DeviceID == *requested {
+		if visible != nil && !visible[d.DeviceID] {
+			continue
+		}
+		if requested == nil || d.DeviceID == *requested {
 			return true, nil
 		}
 	}

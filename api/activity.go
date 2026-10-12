@@ -73,7 +73,7 @@ func (s *Server) handleActivity(w http.ResponseWriter, r *http.Request) {
 	// Two windows: the one shown, and the one before it for the comparison.
 	from := end.Add(-time.Duration(2*n) * bucket)
 
-	counts, err := s.store.Jobs().CountByBucket(r.Context(), store.AllAccounts(), from, bucket)
+	counts, err := s.store.Jobs().CountByBucket(r.Context(), principal(r).Scope(), from, bucket)
 	if err != nil {
 		s.opts.Logger.Error("could not count activity", "err", err)
 		writeError(w, http.StatusInternalServerError, "internal", "could not compute activity")

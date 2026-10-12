@@ -24,10 +24,14 @@ const keepaliveInterval = 25 * time.Second
 // subscription exists, so a client knows from that point on that it will not
 // miss a change and can refetch its baseline without a race.
 //
+// Scoped like the rest of the API: a caller sees the events of its own
+// account, and the operator sees them all.
+//
 // Authenticated like the rest of the API. Browsers' EventSource cannot set an
 // Authorization header, so the dashboard reads the stream with fetch instead.
 func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	rc := http.NewResponseController(w)
+	p := principal(r)
 
 	ch, cancel := s.opts.Events.Subscribe()
 	defer cancel()
@@ -63,6 +67,9 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 				// Dropped for falling behind, or the server is shutting down.
 				// Ending the response makes the client reconnect and resync.
 				return
+			}
+			if !p.AllAccounts && e.AccountID != p.AccountID {
+				continue
 			}
 			data, err := json.Marshal(e)
 			if err != nil {

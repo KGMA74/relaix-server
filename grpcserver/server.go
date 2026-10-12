@@ -144,7 +144,7 @@ func (s *Server) Connect(stream v1.DeviceGateway_ConnectServer) error {
 			log.Warn("unregister failed", "err", err)
 		}
 		log.Info("device disconnected")
-		s.opts.Events.Publish(events.Event{Type: events.DeviceDisconnected, DeviceID: device.ID.String()})
+		s.opts.Events.Publish(events.Event{Type: events.DeviceDisconnected, DeviceID: device.ID.String(), AccountID: device.AccountID})
 	}()
 
 	if err := s.persistRegister(ctx, device, reg, health); err != nil {
@@ -152,7 +152,7 @@ func (s *Server) Connect(stream v1.DeviceGateway_ConnectServer) error {
 	}
 	// After persisting, so a dashboard that refetches on this event reads the
 	// fresh description and health, not the previous connection's.
-	s.opts.Events.Publish(events.Event{Type: events.DeviceConnected, DeviceID: device.ID.String()})
+	s.opts.Events.Publish(events.Event{Type: events.DeviceConnected, DeviceID: device.ID.String(), AccountID: device.AccountID})
 
 	stale, err := s.reconcile(ctx, device.ID, reg.GetPendingJobIds())
 	if err != nil {
@@ -358,7 +358,7 @@ func (s *Server) onHeartbeat(ctx context.Context, device *store.Device, reg *hub
 		log.Warn("could not persist heartbeat", "err", err)
 		return
 	}
-	s.opts.Events.Publish(events.Event{Type: events.DeviceHealth, DeviceID: device.ID.String()})
+	s.opts.Events.Publish(events.Event{Type: events.DeviceHealth, DeviceID: device.ID.String(), AccountID: device.AccountID})
 }
 
 // onPolicyUpdate stores rules edited on the phone and sends the stored version
@@ -381,7 +381,7 @@ func (s *Server) onPolicyUpdate(ctx context.Context, device *store.Device, u *v1
 		}
 		current = stored
 		log.Info("rules edited on the device", "version", stored.Version)
-		s.opts.Events.Publish(events.Event{Type: events.DeviceUpdated, DeviceID: device.ID.String()})
+		s.opts.Events.Publish(events.Event{Type: events.DeviceUpdated, DeviceID: device.ID.String(), AccountID: device.AccountID})
 	}
 
 	msg := &v1.ServerMessage{
@@ -408,7 +408,7 @@ func (s *Server) onLeave(ctx context.Context, device *store.Device, leave *v1.Le
 		return status.Error(codes.Internal, "could not retire device")
 	}
 	log.Info("device left the fleet", "reason", leave.GetReason())
-	s.opts.Events.Publish(events.Event{Type: events.DeviceRemoved, DeviceID: device.ID.String()})
+	s.opts.Events.Publish(events.Event{Type: events.DeviceRemoved, DeviceID: device.ID.String(), AccountID: device.AccountID})
 	return nil
 }
 
@@ -504,6 +504,11 @@ func (s *Server) event(ctx context.Context, jobID uuid.UUID, status store.JobSta
 	ev := events.Event{Type: events.JobUpdated, JobID: jobID.String(), Status: string(status)}
 	if deviceID != nil {
 		ev.DeviceID = deviceID.String()
+	}
+	// The job's account, not the device's: a phone may carry another
+	// account's messages, and the update belongs to whoever sent them.
+	if job, err := s.store.Jobs().Get(ctx, jobID); err == nil {
+		ev.AccountID = job.AccountID
 	}
 	s.opts.Events.Publish(ev)
 }

@@ -16,6 +16,8 @@ package events
 import (
 	"sync"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // Types of event. Dotted by subject so a client can route on the prefix.
@@ -41,6 +43,12 @@ type Event struct {
 	// Reenrolled marks a DeviceEnrolled that took back an existing device
 	// rather than creating one.
 	Reenrolled bool `json:"reenrolled,omitempty"`
+
+	// AccountID owns what the event is about: the job's account for a job
+	// event, the device's for a device event. Streams scoped to one account
+	// only carry its events, and one with no account reaches only streams that
+	// see every account. Not sent: subscribers already know whose stream it is.
+	AccountID uuid.UUID `json:"-"`
 }
 
 // subscriberBuffer absorbs a burst — a fanout of a hundred jobs is a hundred

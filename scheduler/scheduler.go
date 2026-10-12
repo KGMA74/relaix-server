@@ -297,7 +297,7 @@ func (s *Scheduler) Tick(ctx context.Context) error {
 			}
 			used[d]++
 			devices.record(d, sub)
-			s.event(ctx, tx, job.ID, store.JobAssigned, &d, "assigned by scheduler")
+			s.event(ctx, tx, job, store.JobAssigned, &d, "assigned by scheduler")
 			pending = append(pending, dispatch{job: job, deviceID: d, subscriptionID: sub})
 		}
 		return nil
@@ -465,7 +465,7 @@ func (s *Scheduler) push(ctx context.Context, pending []dispatch, now time.Time)
 				"job_id", p.job.ID, "err", relErr)
 			continue
 		}
-		s.event(ctx, s.store, p.job.ID, store.JobPending, &p.deviceID, reason)
+		s.event(ctx, s.store, p.job, store.JobPending, &p.deviceID, reason)
 	}
 }
 
@@ -481,12 +481,13 @@ func (s *Scheduler) fail(ctx context.Context, tx store.Store, job *store.Job, co
 		s.opts.Logger.Error("could not fail job", "job_id", job.ID, "err", err)
 		return
 	}
-	s.event(ctx, tx, job.ID, store.JobFailed, nil, reason)
+	s.event(ctx, tx, job, store.JobFailed, nil, reason)
 }
 
 // event appends to the audit trail. A failure here never fails the operation
 // being audited: losing a log line is bad, losing an SMS is worse.
-func (s *Scheduler) event(ctx context.Context, st store.Store, jobID uuid.UUID, status store.JobStatus, deviceID *uuid.UUID, reason string) {
+func (s *Scheduler) event(ctx context.Context, st store.Store, job *store.Job, status store.JobStatus, deviceID *uuid.UUID, reason string) {
+	jobID := job.ID
 	e := &store.JobEvent{
 		JobID:     jobID,
 		Status:    status,
@@ -498,7 +499,7 @@ func (s *Scheduler) event(ctx context.Context, st store.Store, jobID uuid.UUID, 
 		s.opts.Logger.Warn("could not record job event", "job_id", jobID, "err", err)
 	}
 
-	ev := events.Event{Type: events.JobUpdated, JobID: jobID.String(), Status: string(status)}
+	ev := events.Event{Type: events.JobUpdated, JobID: jobID.String(), Status: string(status), AccountID: job.AccountID}
 	if deviceID != nil {
 		ev.DeviceID = deviceID.String()
 	}

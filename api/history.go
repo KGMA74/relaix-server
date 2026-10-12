@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/KGMA74/relaix-server/hub"
 	"github.com/KGMA74/relaix-server/store"
 )
 
@@ -44,6 +45,10 @@ func (s *Server) handleListJobs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// One extra row tells whether another page exists without a second query.
+	if p := principal(r); !p.AllAccounts {
+		f.AccountID = &p.AccountID
+	}
+
 	limit := f.Limit
 	f.Limit = limit + 1
 
@@ -175,12 +180,7 @@ func (s *Server) handleJobEvents(w http.ResponseWriter, r *http.Request) {
 
 	// An unknown job and a job with no events would both list as empty; only
 	// one of them is a mistake on the caller's side.
-	if _, err := s.store.Jobs().Get(ctx, id); errors.Is(err, store.ErrNotFound) {
-		writeError(w, http.StatusNotFound, "not_found", "no such job")
-		return
-	} else if err != nil {
-		s.opts.Logger.Error("could not read job", "job_id", id, "err", err)
-		writeError(w, http.StatusInternalServerError, "internal", "could not read job")
+	if _, ok := s.ownedJob(w, r, id); !ok {
 		return
 	}
 
@@ -238,15 +238,16 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 		window = d
 	}
 	ctx := r.Context()
+	p := principal(r)
 	since := s.opts.Now().Add(-window)
 
-	counts, err := s.store.Jobs().CountByStatus(ctx, store.AllAccounts(), since)
+	counts, err := s.store.Jobs().CountByStatus(ctx, p.Scope(), since)
 	if err != nil {
 		s.opts.Logger.Error("could not count jobs", "err", err)
 		writeError(w, http.StatusInternalServerError, "internal", "could not compute stats")
 		return
 	}
-	stored, err := s.store.Devices().List(ctx, store.AllAccounts())
+	stored, err := s.store.Devices().List(ctx, p.Scope())
 	if err != nil {
 		s.opts.Logger.Error("could not list devices", "err", err)
 		writeError(w, http.StatusInternalServerError, "internal", "could not compute stats")
@@ -272,8 +273,8 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 		Jobs:  make(map[string]int),
 		Devices: deviceCounts{
 			Total:     len(stored),
-			Connected: len(connected),
-			Ready:     len(ready),
+			Connected: countVisible(connected, stored, p),
+			Ready:     countVisible(ready, stored, p),
 		},
 	}
 	for _, st := range []store.JobStatus{
@@ -289,4 +290,22 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// countVisible counts the live devices among those the principal may see.
+func countVisible(live []hub.DeviceState, visible []*store.Device, p Principal) int {
+	if p.AllAccounts {
+		return len(live)
+	}
+	ids := make(map[uuid.UUID]bool, len(visible))
+	for _, d := range visible {
+		ids[d.ID] = true
+	}
+	n := 0
+	for _, d := range live {
+		if ids[d.DeviceID] {
+			n++
+		}
+	}
+	return n
 }
