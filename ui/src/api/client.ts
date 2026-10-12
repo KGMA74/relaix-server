@@ -39,6 +39,14 @@ export function currentApiKey(): string | null {
   return getApiKey() ?? memoryKey;
 }
 
+// Headers added to every request by an app embedding these pages — a CSRF
+// token for a cookie session, say. None by default.
+let extraHeaders: (method: string) => Record<string, string> = () => ({});
+
+export function setExtraHeaders(fn: (method: string) => Record<string, string>) {
+  extraHeaders = fn;
+}
+
 // Called on any 401 so the app can drop back to the login screen.
 let onUnauthorized: () => void = () => {};
 
@@ -50,9 +58,10 @@ export function setUnauthorizedHandler(fn: () => void) {
   onUnauthorized = fn;
 }
 
-async function request<T>(method: string, path: string, body?: unknown, key?: string): Promise<T> {
+/** A call to the gateway, for routes the api object below does not cover. */
+export async function request<T>(method: string, path: string, body?: unknown, key?: string): Promise<T> {
   const apiKey = key ?? getApiKey() ?? memoryKey;
-  const headers: Record<string, string> = {};
+  const headers: Record<string, string> = { ...extraHeaders(method) };
   if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
   if (body !== undefined) headers["Content-Type"] = "application/json";
 

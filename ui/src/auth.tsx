@@ -2,13 +2,17 @@ import { useQueryClient } from "@tanstack/react-query";
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { getApiKey, setApiKey, setUnauthorizedHandler } from "./api/client";
 
-interface Auth {
+export interface Auth {
   signedIn: boolean;
   signIn: (key: string) => void;
   signOut: () => void;
 }
 
-const AuthContext = createContext<Auth | null>(null);
+/**
+ * Provided by AuthProvider below, or by an app embedding these pages that signs
+ * in some other way: the layout only needs signOut.
+ */
+export const AuthContext = createContext<Auth | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();

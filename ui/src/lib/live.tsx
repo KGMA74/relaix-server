@@ -89,7 +89,8 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       setStatus((s) => (s === "live" ? "connecting" : s));
       try {
         const res = await fetch("/events", {
-          headers: key ? { Authorization: `Bearer ${key}`, Accept: "text/event-stream" } : {},
+          // Without a key, the browser's own credentials (a session cookie) go instead.
+          headers: key ? { Authorization: `Bearer ${key}`, Accept: "text/event-stream" } : { Accept: "text/event-stream" },
           signal: abort.signal,
         });
         if (res.status === 401) {

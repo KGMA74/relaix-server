@@ -1,4 +1,5 @@
 import { Code2, History, LayoutDashboard, LogOut, Moon, Send, Smartphone, Sun, type LucideIcon } from "lucide-react";
+import type { ReactNode } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { useAuth } from "@/auth";
 import { Button } from "@/components/ui/button";
@@ -27,14 +28,19 @@ import { useLive, useLiveEvent, type LiveStatus } from "@/lib/live";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
-interface NavItem {
+export interface NavItem {
   to: string;
   label: string;
   icon: LucideIcon;
   end?: boolean;
 }
 
-const groups: { label: string; items: NavItem[] }[] = [
+export interface NavGroup {
+  label: string;
+  items: NavItem[];
+}
+
+const groups: NavGroup[] = [
   {
     label: "Messages",
     items: [
@@ -52,8 +58,6 @@ const groups: { label: string; items: NavItem[] }[] = [
   },
 ];
 
-const allItems = groups.flatMap((g) => g.items);
-
 function isActive(pathname: string, item: NavItem) {
   return item.end ? pathname === item.to : pathname === item.to || pathname.startsWith(item.to + "/");
 }
@@ -66,7 +70,7 @@ function readSidebarOpen(): boolean {
   return !document.cookie.split("; ").includes(`${SIDEBAR_COOKIE_NAME}=false`);
 }
 
-function Nav() {
+function Nav({ groups }: { groups: NavGroup[] }) {
   const { pathname } = useLocation();
   const { isMobile, setOpenMobile } = useSidebar();
 
@@ -159,11 +163,23 @@ function ThemeToggle({ theme, toggle }: { theme: "light" | "dark"; toggle: () =>
   );
 }
 
-export function Layout() {
+/**
+ * What an app embedding these pages may change: its name, extra sections of
+ * navigation after the gateway's own, and what sits above "Se déconnecter".
+ */
+export interface LayoutProps {
+  brand?: { name: string; tagline?: string };
+  extraGroups?: NavGroup[];
+  footer?: ReactNode;
+}
+
+export function Layout({ brand, extraGroups = [], footer }: LayoutProps = {}) {
   const { signOut } = useAuth();
   const [theme, toggleTheme] = useTheme();
   const { pathname } = useLocation();
-  const current = allItems.find((i) => isActive(pathname, i));
+  const allGroups = [...groups, ...extraGroups];
+  const current = allGroups.flatMap((g) => g.items).find((i) => isActive(pathname, i));
+  const name = brand?.name ?? "Relaix";
 
   return (
     // Bounded to the viewport so only the content column scrolls, never the sidebar with it.
@@ -172,12 +188,12 @@ export function Layout() {
         <SidebarHeader>
           <SidebarMenu>
             <SidebarMenuItem>
-              <SidebarMenuButton size="lg" asChild tooltip="Relaix">
+              <SidebarMenuButton size="lg" asChild tooltip={name}>
                 <NavLink to="/">
                   <img src="/ui/favicon.svg" alt="" className="size-8 shrink-0 rounded-md" />
                   <div className="grid flex-1 text-left leading-tight">
-                    <span className="truncate font-semibold">Relaix</span>
-                    <span className="truncate text-xs text-sidebar-foreground/60">Passerelle SMS</span>
+                    <span className="truncate font-semibold">{name}</span>
+                    <span className="truncate text-xs text-sidebar-foreground/60">{brand?.tagline ?? "Passerelle SMS"}</span>
                   </div>
                 </NavLink>
               </SidebarMenuButton>
@@ -186,10 +202,11 @@ export function Layout() {
         </SidebarHeader>
 
         <SidebarContent>
-          <Nav />
+          <Nav groups={allGroups} />
         </SidebarContent>
 
         <SidebarFooter>
+          {footer}
           <SidebarMenu>
             <SidebarMenuItem>
               <SidebarMenuButton onClick={signOut} tooltip="Se déconnecter">
@@ -206,7 +223,7 @@ export function Layout() {
         <header className="flex h-14 shrink-0 items-center gap-2 border-b bg-background/80 px-4 backdrop-blur">
           <SidebarTrigger className="-ml-1" title="Réduire / déplier (Ctrl+B)" />
           <Separator orientation="vertical" className="mr-1 data-[orientation=vertical]:h-4" />
-          <span className="truncate text-sm font-medium">{current?.label ?? "Relaix"}</span>
+          <span className="truncate text-sm font-medium">{current?.label ?? name}</span>
           <div className="ml-auto flex items-center gap-2">
             <LiveIndicator />
             <ThemeToggle theme={theme} toggle={toggleTheme} />
