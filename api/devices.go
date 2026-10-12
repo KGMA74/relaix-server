@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/google/uuid"
 	qrcode "github.com/skip2/go-qrcode"
 
 	"github.com/KGMA74/relaix-server/events"
@@ -133,9 +134,24 @@ type deviceResponse struct {
 	Policy   policy.Policy `json:"policy"`
 	// AvailableNow: the device's own hours are open at this moment (SIM
 	// hours aside). A ready device outside them takes no job.
-	AvailableNow bool    `json:"availableNow"`
-	LastSeenAt   *string `json:"lastSeenAt,omitempty"`
-	CreatedAt    string  `json:"createdAt"`
+	AvailableNow bool `json:"availableNow"`
+	// Usage is what the device was handed over the send-limit windows, as the
+	// scheduler counts it — the figures its caps are compared with.
+	Usage      usageResponse `json:"usage"`
+	LastSeenAt *string       `json:"lastSeenAt,omitempty"`
+	CreatedAt  string        `json:"createdAt"`
+}
+
+type usageResponse struct {
+	LastHour int `json:"lastHour"`
+	LastDay  int `json:"lastDay"`
+	// Sims is the same per subscription id, for SIMs named on their jobs.
+	Sims map[int32]usageCount `json:"sims,omitempty"`
+}
+
+type usageCount struct {
+	LastHour int `json:"lastHour"`
+	LastDay  int `json:"lastDay"`
 }
 
 // simResponse merges a SIM's identity with its latest health, matching how an
@@ -220,6 +236,30 @@ func (s *Server) handleListDevices(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	now := s.opts.Now()
+	counts, err := s.store.Jobs().CountDispatched(ctx, now.Add(-time.Hour), now.Add(-24*time.Hour))
+	if err != nil {
+		s.opts.Logger.Error("could not count dispatched jobs", "err", err)
+		writeError(w, http.StatusInternalServerError, "internal", "could not list devices")
+		return
+	}
+	usage := make(map[uuid.UUID]*usageResponse)
+	for _, c := range counts {
+		u := usage[c.DeviceID]
+		if u == nil {
+			u = &usageResponse{}
+			usage[c.DeviceID] = u
+		}
+		u.LastHour += c.LastHour
+		u.LastDay += c.LastDay
+		if c.SubscriptionID != nil {
+			if u.Sims == nil {
+				u.Sims = map[int32]usageCount{}
+			}
+			u.Sims[*c.SubscriptionID] = usageCount{LastHour: c.LastHour, LastDay: c.LastDay}
+		}
+	}
+
 	live := make(map[string]hub.DeviceState, len(connected))
 	for _, d := range connected {
 		live[d.DeviceID.String()] = d
@@ -247,7 +287,10 @@ func (s *Server) handleListDevices(w http.ResponseWriter, r *http.Request) {
 			CreatedAt:    d.CreatedAt.UTC().Format(time.RFC3339),
 			TimeZone:     d.TimeZone,
 			Policy:       d.Policy,
-			AvailableNow: d.Policy.Availability.Open(s.opts.Now(), d.TimeZone),
+			AvailableNow: d.Policy.Availability.Open(now, d.TimeZone),
+		}
+		if u := usage[d.ID]; u != nil {
+			resp.Usage = *u
 		}
 
 		// Prefer the hub's health: it is the live snapshot, while the stored

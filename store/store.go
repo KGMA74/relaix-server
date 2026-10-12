@@ -124,9 +124,16 @@ type JobStore interface {
 	ClaimSchedulable(ctx context.Context, now time.Time, limit int) ([]*Job, error)
 
 	// MarkAssigned records that a job was pushed to a device and accepted,
-	// incrementing Attempts. Returns ErrConflict if the job is no longer
+	// incrementing Attempts. subscriptionID is the SIM it goes out on, or 0
+	// for the phone's default. Returns ErrConflict if the job is no longer
 	// pending — it was cancelled, or another instance got there first.
-	MarkAssigned(ctx context.Context, id, deviceID uuid.UUID, at time.Time) error
+	MarkAssigned(ctx context.Context, id, deviceID uuid.UUID, subscriptionID int32, at time.Time) error
+
+	// CountDispatched counts, per device and SIM, the messages handed out
+	// since dayAgo and since hourAgo: what send limits are checked against.
+	// Messages still in flight count, as do those sent; ones released, failed
+	// or cancelled do not.
+	CountDispatched(ctx context.Context, hourAgo, dayAgo time.Time) ([]DispatchCount, error)
 
 	// Release returns an assigned job to pending, for when a device refused it
 	// or disconnected still holding it. Attempts is not decremented: the point

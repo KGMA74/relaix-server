@@ -82,6 +82,7 @@ function DeviceCard({ device: d }: { device: Device }) {
           <Dot on={d.connected} label={d.connected ? "Connecté" : "Hors ligne"} />
           <Dot on={d.ready} label={d.ready ? "Prêt à envoyer" : "Indisponible"} />
           {!d.availableNow && <Pill tone="warning">Hors horaires</Pill>}
+          {atCap(d) && <Pill tone="warning">Plafond atteint</Pill>}
         </div>
       </div>
 
@@ -103,7 +104,13 @@ function DeviceCard({ device: d }: { device: Device }) {
           <Metric label="Signal">
             <SignalBars level={h.signalStrength} /> <span className="ml-1 text-xs text-muted-foreground">{h.networkType}</span>
           </Metric>
-          <Metric label="Envoyés (1 h)">{h.sentLastHour}</Metric>
+          <Metric label="Envoyés (1 h · 24 h)">
+            <span className={cn(atCap(d) && "text-warning")}>
+              {d.usage?.lastHour ?? 0}
+              {d.policy?.limits?.perHour ? `/${d.policy.limits.perHour}` : ""} · {d.usage?.lastDay ?? 0}
+              {d.policy?.limits?.perDay ? `/${d.policy.limits.perDay}` : ""}
+            </span>
+          </Metric>
           <Metric label="Permissions">{h.permissionsOk ? "OK" : <span className="text-destructive">Manquantes</span>}</Metric>
         </div>
       ) : (
@@ -315,9 +322,19 @@ function rulesSummary(d: Device): string {
   }
   if (p?.accept?.countries?.length) parts.push(p.accept.countries.join(", "));
   if (p?.accept?.pattern) parts.push(`motif ${p.accept.pattern}`);
+  if (p?.limits?.perHour) parts.push(`≤ ${p.limits.perHour}/h`);
+  if (p?.limits?.perDay) parts.push(`≤ ${p.limits.perDay}/j`);
   const offSims = (p?.sims ?? []).filter((s) => s.disabled).length;
   const ruledSims = (p?.sims ?? []).length - offSims;
   if (offSims) parts.push(`${offSims} SIM désactivée${offSims > 1 ? "s" : ""}`);
   if (ruledSims) parts.push(`règles sur ${ruledSims} SIM`);
   return parts.length ? parts.join(" · ") : "Aucune règle : tous les numéros, à toute heure";
+}
+
+/** The device has used up one of its own caps: it takes no job until the window slides. */
+function atCap(d: Device): boolean {
+  const l = d.policy?.limits;
+  const u = d.usage;
+  if (!l || !u) return false;
+  return (!!l.perHour && u.lastHour >= l.perHour) || (!!l.perDay && u.lastDay >= l.perDay);
 }

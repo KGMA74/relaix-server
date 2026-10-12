@@ -136,19 +136,69 @@ type dispatch struct {
 	subscriptionID int32
 }
 
-// fleet is the tick's view of every device's rules, read once per tick: the
-// hub knows who is ready, only the store knows their policies.
-type fleet map[uuid.UUID]*store.Device
+// fleet is the tick's view of every device's rules and of what each was
+// handed recently, read once per tick: the hub knows who is ready, only the
+// store knows their policies and their send counts.
+type fleet struct {
+	devices map[uuid.UUID]*store.Device
+	sent    map[uuid.UUID]policy.Count
+	simSent map[uuid.UUID]map[int32]policy.Count
+}
+
+func newFleet(devices []*store.Device, counts []store.DispatchCount) fleet {
+	f := fleet{
+		devices: make(map[uuid.UUID]*store.Device, len(devices)),
+		sent:    make(map[uuid.UUID]policy.Count),
+		simSent: make(map[uuid.UUID]map[int32]policy.Count),
+	}
+	for _, d := range devices {
+		f.devices[d.ID] = d
+	}
+	for _, c := range counts {
+		total := f.sent[c.DeviceID]
+		total.Hour += c.LastHour
+		total.Day += c.LastDay
+		f.sent[c.DeviceID] = total
+		if c.SubscriptionID != nil {
+			f.addSim(c.DeviceID, *c.SubscriptionID, policy.Count{Hour: c.LastHour, Day: c.LastDay})
+		}
+	}
+	return f
+}
+
+func (f fleet) addSim(device uuid.UUID, sub int32, n policy.Count) {
+	m := f.simSent[device]
+	if m == nil {
+		m = make(map[int32]policy.Count)
+		f.simSent[device] = m
+	}
+	c := m[sub]
+	c.Hour += n.Hour
+	c.Day += n.Day
+	m[sub] = c
+}
+
+// record counts a job handed out during this tick, so that the next job in
+// the same tick sees the device's — and SIM's — new total against its caps.
+func (f fleet) record(device uuid.UUID, sub int32) {
+	c := f.sent[device]
+	c.Hour++
+	c.Day++
+	f.sent[device] = c
+	if sub != 0 {
+		f.addSim(device, sub, policy.Count{Hour: 1, Day: 1})
+	}
+}
 
 // policyFor returns a device's rules and what they need to know about it. A
 // device the store does not know — gone since the hub listed it — has the
 // zero policy, which restricts nothing.
 func (f fleet) policyFor(id uuid.UUID) (policy.Policy, policy.Device) {
-	d, ok := f[id]
+	d, ok := f.devices[id]
 	if !ok {
 		return policy.Policy{}, policy.Device{}
 	}
-	pd := policy.Device{TimeZone: d.TimeZone}
+	pd := policy.Device{TimeZone: d.TimeZone, Sent: f.sent[id], SimSent: f.simSent[id]}
 	// Default SIM first: when several may send, the one the phone's owner
 	// chose as default is the least surprising.
 	for _, sim := range d.Sims {
@@ -166,7 +216,7 @@ func (f fleet) policyFor(id uuid.UUID) (policy.Policy, policy.Device) {
 // still come, and the job keeps waiting for it as it always did.
 func (f fleet) anyAcceptsEver(recipient string) bool {
 	enabled := 0
-	for id, d := range f {
+	for id, d := range f.devices {
 		if !d.Enabled {
 			continue
 		}
@@ -200,10 +250,11 @@ func (s *Scheduler) Tick(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	devices := make(fleet, len(all))
-	for _, d := range all {
-		devices[d.ID] = d
+	counts, err := s.store.Jobs().CountDispatched(ctx, now.Add(-time.Hour), now.Add(-24*time.Hour))
+	if err != nil {
+		return err
 	}
+	devices := newFleet(all, counts)
 
 	var pending []dispatch
 	s.held = s.held[:0]
@@ -222,7 +273,12 @@ func (s *Scheduler) Tick(ctx context.Context) error {
 			if !ok {
 				continue
 			}
-			if err := tx.Jobs().MarkAssigned(ctx, job.ID, d, now); err != nil {
+			// The SIM the job goes out on: the rules' pick, else the one the
+			// caller named, else the phone's default (0).
+			if sub == 0 && job.SubscriptionID != nil {
+				sub = *job.SubscriptionID
+			}
+			if err := tx.Jobs().MarkAssigned(ctx, job.ID, d, sub, now); err != nil {
 				// Lost a race with a cancellation or another instance. Not
 				// fatal: skip this job and keep placing the rest.
 				if errors.Is(err, store.ErrConflict) {
@@ -232,6 +288,7 @@ func (s *Scheduler) Tick(ctx context.Context) error {
 				return err
 			}
 			used[d]++
+			devices.record(d, sub)
 			s.event(ctx, tx, job.ID, store.JobAssigned, &d, "assigned by scheduler")
 			pending = append(pending, dispatch{job: job, deviceID: d, subscriptionID: sub})
 		}

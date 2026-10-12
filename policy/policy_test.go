@@ -192,3 +192,54 @@ func TestValidate(t *testing.T) {
 		t.Errorf("countries not normalized: %v", got)
 	}
 }
+
+func TestDeviceLimitIsNotNow(t *testing.T) {
+	p := Policy{Limits: Limits{PerHour: 10, PerDay: 100}}
+	d := Device{}
+
+	d.Sent = Count{Hour: 9, Day: 50}
+	if c := p.Choose(wed1030, "+22670000000", d, 0); !c.OK {
+		t.Errorf("under the caps: %+v, want OK", c)
+	}
+	d.Sent = Count{Hour: 10, Day: 50}
+	if c := p.Choose(wed1030, "+22670000000", d, 0); c.OK || c.Never {
+		t.Errorf("at the hourly cap: %+v, want wait", c)
+	}
+	d.Sent = Count{Hour: 0, Day: 100}
+	if c := p.Choose(wed1030, "+22670000000", d, 0); c.OK || c.Never {
+		t.Errorf("at the daily cap: %+v, want wait", c)
+	}
+	if !p.AcceptsEver("+22670000000", d, 0) {
+		t.Error("a capped device does not accept ever: a cap is temporary")
+	}
+}
+
+// A SIM at its cap hands the job to the phone's other SIM.
+func TestSIMLimitMovesToTheOtherSIM(t *testing.T) {
+	p := Policy{Sims: []SimPolicy{
+		{SubscriptionID: 1, Limits: Limits{PerHour: 5}},
+		{SubscriptionID: 2, Limits: Limits{PerHour: 5}},
+	}}
+	d := Device{Sims: []int32{1, 2}, SimSent: map[int32]Count{1: {Hour: 5}}}
+	if c := p.Choose(wed1030, "+22670000000", d, 0); !c.OK || c.SubscriptionID != 2 {
+		t.Errorf("SIM 1 capped: %+v, want SIM 2", c)
+	}
+	d.SimSent[2] = Count{Hour: 5}
+	if c := p.Choose(wed1030, "+22670000000", d, 0); c.OK || c.Never {
+		t.Errorf("both capped: %+v, want wait", c)
+	}
+}
+
+func TestValidateLimits(t *testing.T) {
+	for i, l := range []Limits{{PerHour: -1}, {PerDay: -2}, {PerHour: 10, PerDay: 5}, {PerHour: maxLimit + 1}} {
+		if err := Validate(Policy{Limits: l}); !errors.Is(err, ErrInvalid) {
+			t.Errorf("case %d (%+v): %v, want ErrInvalid", i, l, err)
+		}
+		if err := Validate(Policy{Sims: []SimPolicy{{SubscriptionID: 1, Limits: l}}}); !errors.Is(err, ErrInvalid) {
+			t.Errorf("SIM case %d (%+v): %v, want ErrInvalid", i, l, err)
+		}
+	}
+	if err := Validate(Policy{Limits: Limits{PerHour: 30, PerDay: 300}}); err != nil {
+		t.Errorf("valid limits rejected: %v", err)
+	}
+}

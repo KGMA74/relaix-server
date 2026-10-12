@@ -665,3 +665,84 @@ func TestOnlyEnabledDevicesCountAsAccepting(t *testing.T) {
 		t.Errorf("code %q, want no_device_accepts (the device %v that would accept is disabled)", got.ErrorCode, off)
 	}
 }
+
+// --- send limits ------------------------------------------------------------
+
+// A device at its hourly cap is skipped for this tick; the job goes to the
+// other device, or waits.
+func TestHourlyCapStopsHandingOutJobs(t *testing.T) {
+	st := storetest.New()
+	capped := seedRuled(st, policy.Policy{Limits: policy.Limits{PerHour: 2}})
+	h := newFakeHub(capped)
+	s := newScheduler(t, st, h, Options{})
+
+	var jobs []*store.Job
+	for range 3 {
+		jobs = append(jobs, st.SeedJob(&store.Job{Recipient: "+22670000000", Body: "x", Mode: store.ModeQueued}))
+	}
+	if err := s.Tick(context.Background()); err != nil {
+		t.Fatalf("Tick: %v", err)
+	}
+	if n := h.totalSent(); n != 2 {
+		t.Fatalf("handed out %d jobs within one tick, want the cap of 2", n)
+	}
+	pending := 0
+	for _, j := range jobs {
+		if st.JobByID(j.ID).Status == store.JobPending {
+			pending++
+		}
+	}
+	if pending != 1 {
+		t.Errorf("%d jobs pending, want 1 waiting for the window", pending)
+	}
+
+	// The next tick still sees the two in flight, counted from the store.
+	if err := s.Tick(context.Background()); err != nil {
+		t.Fatalf("second Tick: %v", err)
+	}
+	if n := h.totalSent(); n != 2 {
+		t.Errorf("second tick handed out more: %d total, want 2", n)
+	}
+}
+
+func TestSIMCapMovesToTheOtherSIMAndIsRecorded(t *testing.T) {
+	st := storetest.New()
+	dev := seedRuled(st,
+		policy.Policy{Sims: []policy.SimPolicy{
+			{SubscriptionID: 1, Limits: policy.Limits{PerHour: 1}},
+		}},
+		store.SimInfo{SubscriptionID: 1, IsDefaultSMS: true},
+		store.SimInfo{SubscriptionID: 2},
+	)
+	h := newFakeHub(dev)
+	s := newScheduler(t, st, h, Options{})
+
+	a := st.SeedJob(&store.Job{Recipient: "+22670000000", Body: "a", Mode: store.ModeQueued, Priority: 2})
+	b := st.SeedJob(&store.Job{Recipient: "+22670000001", Body: "b", Mode: store.ModeQueued, Priority: 1})
+	if err := s.Tick(context.Background()); err != nil {
+		t.Fatalf("Tick: %v", err)
+	}
+	if got := st.JobByID(a.ID).AssignedSubscriptionID; got == nil || *got != 1 {
+		t.Errorf("first job on SIM %v, want 1 (the default)", got)
+	}
+	if got := st.JobByID(b.ID).AssignedSubscriptionID; got == nil || *got != 2 {
+		t.Errorf("second job on SIM %v, want 2 (SIM 1 at its cap)", got)
+	}
+}
+
+// A cap is "not now", never "never": the recipient is still accepted.
+func TestCappedFleetMakesJobsWaitNotFail(t *testing.T) {
+	st := storetest.New()
+	dev := seedRuled(st, policy.Policy{Limits: policy.Limits{PerDay: 1}})
+	h := newFakeHub(dev)
+	s := newScheduler(t, st, h, Options{})
+
+	st.SeedJob(&store.Job{Recipient: "+22670000000", Body: "a", Mode: store.ModeQueued})
+	second := st.SeedJob(&store.Job{Recipient: "+22670000000", Body: "b", Mode: store.ModeQueued})
+	if err := s.Tick(context.Background()); err != nil {
+		t.Fatalf("Tick: %v", err)
+	}
+	if got := st.JobByID(second.ID); got.Status != store.JobPending {
+		t.Errorf("job beyond the cap is %q (%s), want pending", got.Status, got.ErrorCode)
+	}
+}

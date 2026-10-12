@@ -62,14 +62,18 @@ type jobResponse struct {
 	Priority       int     `json:"priority"`
 	DeviceID       *string `json:"deviceId,omitempty"`
 	SubscriptionID *int32  `json:"subscriptionId,omitempty"`
-	Attempts       int     `json:"attempts"`
-	PartsSent      int     `json:"partsSent"`
-	ErrorCode      string  `json:"errorCode,omitempty"`
-	ErrorMsg       string  `json:"errorMessage,omitempty"`
-	ScheduledAt    *string `json:"scheduledAt,omitempty"`
-	ExpiresAt      *string `json:"expiresAt,omitempty"`
-	CreatedAt      string  `json:"createdAt"`
-	CompletedAt    *string `json:"completedAt,omitempty"`
+	// SentFromSubscriptionID is the SIM the job was handed to — the requested
+	// one or the one the device's rules picked. Absent for the phone's
+	// default, or before assignment.
+	SentFromSubscriptionID *int32  `json:"sentFromSubscriptionId,omitempty"`
+	Attempts               int     `json:"attempts"`
+	PartsSent              int     `json:"partsSent"`
+	ErrorCode              string  `json:"errorCode,omitempty"`
+	ErrorMsg               string  `json:"errorMessage,omitempty"`
+	ScheduledAt            *string `json:"scheduledAt,omitempty"`
+	ExpiresAt              *string `json:"expiresAt,omitempty"`
+	CreatedAt              string  `json:"createdAt"`
+	CompletedAt            *string `json:"completedAt,omitempty"`
 }
 
 func (s *Server) handleSend(w http.ResponseWriter, r *http.Request) {
@@ -439,6 +443,7 @@ func toJobResponse(j *store.Job) jobResponse {
 		resp.DeviceID = &id
 	}
 	resp.SubscriptionID = j.SubscriptionID
+	resp.SentFromSubscriptionID = j.AssignedSubscriptionID
 	if j.ScheduledAt != nil {
 		at := j.ScheduledAt.UTC().Format(time.RFC3339)
 		resp.ScheduledAt = &at

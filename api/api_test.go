@@ -775,7 +775,7 @@ func TestDeleteDeviceKeepsItsJobs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Jobs.Create: %v", err)
 	}
-	if err := h.store.Jobs().MarkAssigned(ctx, job.ID, dev.ID, testNow); err != nil {
+	if err := h.store.Jobs().MarkAssigned(ctx, job.ID, dev.ID, 0, testNow); err != nil {
 		t.Fatalf("MarkAssigned: %v", err)
 	}
 

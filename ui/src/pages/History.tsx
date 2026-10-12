@@ -123,7 +123,9 @@ export function HistoryPage() {
                   </td>
                   <td className="td whitespace-nowrap text-muted-foreground">
                     {deviceLabel(j.deviceId)}
-                    {j.subscriptionId !== undefined && <span className="text-xs"> · SIM {j.subscriptionId}</span>}
+                    {(j.sentFromSubscriptionId ?? j.subscriptionId) !== undefined && (
+                      <span className="text-xs"> · SIM {j.sentFromSubscriptionId ?? j.subscriptionId}</span>
+                    )}
                   </td>
                   <td className="td text-right tabular-nums">{j.partsSent || "—"}</td>
                 </tr>
@@ -213,7 +215,12 @@ function JobDetail({
         <Field label="Terminé">{formatDateTime(j.completedAt)}</Field>
         <Field label="Programmé">{formatDateTime(j.scheduledAt)}</Field>
         <Field label="Appareil">{deviceLabel(j.deviceId)}</Field>
-        <Field label="SIM">{j.subscriptionId ?? "par défaut"}</Field>
+        <Field label="SIM">
+          {j.sentFromSubscriptionId ?? j.subscriptionId ?? "par défaut"}
+          {j.subscriptionId === undefined && j.sentFromSubscriptionId !== undefined && (
+            <span className="text-xs text-muted-foreground"> (choisie par les règles)</span>
+          )}
+        </Field>
         <Field label="Mode">{j.mode === "immediate" ? "Immédiat" : "En file"}</Field>
         <Field label="Priorité">{j.priority}</Field>
         <Field label="Tentatives">{j.attempts}</Field>

@@ -16,6 +16,7 @@ type jobStore struct{ q querier }
 const jobColumns = `
 	id, recipient, body, mode, priority,
 	scheduled_at, expires_at, requested_device_id, assigned_device_id, subscription_id,
+	assigned_subscription_id,
 	status, error_code, error_message, parts_sent, attempts,
 	callback_url, callback_attempts, callback_next_at, callback_delivered_at, callback_last_error,
 	created_at, updated_at, assigned_at, completed_at`
@@ -66,14 +67,15 @@ func (j jobStore) ClaimSchedulable(ctx context.Context, now time.Time, limit int
 	return j.queryJobs(ctx, q, now, limit)
 }
 
-func (j jobStore) MarkAssigned(ctx context.Context, id, deviceID uuid.UUID, at time.Time) error {
+func (j jobStore) MarkAssigned(ctx context.Context, id, deviceID uuid.UUID, subscriptionID int32, at time.Time) error {
 	const q = `
 		UPDATE jobs SET
 			status = 'assigned', assigned_device_id = $2, assigned_at = $3,
+			assigned_subscription_id = NULLIF($4, 0),
 			attempts = attempts + 1, updated_at = $3
 		WHERE id = $1 AND status = 'pending'`
 
-	tag, err := j.q.Exec(ctx, q, id, deviceID, at)
+	tag, err := j.q.Exec(ctx, q, id, deviceID, at, subscriptionID)
 	if err != nil {
 		return translate(err)
 	}
@@ -85,12 +87,42 @@ func (j jobStore) MarkAssigned(ctx context.Context, id, deviceID uuid.UUID, at t
 	return nil
 }
 
+// CountDispatched walks jobs_assigned_recent_idx over the last day only.
+func (j jobStore) CountDispatched(ctx context.Context, hourAgo, dayAgo time.Time) ([]store.DispatchCount, error) {
+	const q = `
+		SELECT assigned_device_id, assigned_subscription_id,
+			count(*) FILTER (WHERE assigned_at >= $1),
+			count(*)
+		FROM jobs
+		WHERE assigned_at >= $2
+			AND assigned_device_id IS NOT NULL
+			AND status IN ('assigned', 'sent', 'delivered')
+		GROUP BY assigned_device_id, assigned_subscription_id`
+
+	rows, err := j.q.Query(ctx, q, hourAgo, dayAgo)
+	if err != nil {
+		return nil, translate(err)
+	}
+	defer rows.Close()
+
+	var out []store.DispatchCount
+	for rows.Next() {
+		var c store.DispatchCount
+		if err := rows.Scan(&c.DeviceID, &c.SubscriptionID, &c.LastHour, &c.LastDay); err != nil {
+			return nil, translate(err)
+		}
+		out = append(out, c)
+	}
+	return out, translate(rows.Err())
+}
+
 // Release returns an assigned job to pending. attempts is deliberately not
 // decremented: the counter bounds how often we try, not how often we succeed.
 func (j jobStore) Release(ctx context.Context, id uuid.UUID, reason string) error {
 	const q = `
 		UPDATE jobs SET
 			status = 'pending', assigned_device_id = NULL, assigned_at = NULL,
+			assigned_subscription_id = NULL,
 			error_message = $2, updated_at = now()
 		WHERE id = $1 AND status = 'assigned'`
 
@@ -364,6 +396,7 @@ func scanJob(row scanner) (*store.Job, error) {
 	err := row.Scan(
 		&j.ID, &j.Recipient, &j.Body, &mode, &j.Priority,
 		&j.ScheduledAt, &j.ExpiresAt, &j.RequestedDeviceID, &j.AssignedDeviceID, &j.SubscriptionID,
+		&j.AssignedSubscriptionID,
 		&status, &j.ErrorCode, &j.ErrorMessage, &j.PartsSent, &j.Attempts,
 		&j.Callback.URL, &j.Callback.Attempts, &j.Callback.NextAttemptAt,
 		&j.Callback.DeliveredAt, &j.Callback.LastError,

@@ -34,6 +34,27 @@ type Policy struct {
 	// Sims narrows the device's rules per SIM: a SIM must satisfy both.
 	Sims      []SimPolicy `json:"sims,omitempty"`
 	UpdatedAt *time.Time  `json:"updatedAt,omitempty"`
+	// Limits cap what the device is handed, all SIMs together.
+	Limits Limits `json:"limits"`
+}
+
+// Limits cap how many messages a device or a SIM is handed over sliding
+// windows: carriers throttle or block a SIM that sends too much, so a phone
+// must stop being chosen before that happens. Zero is no cap.
+type Limits struct {
+	PerHour int `json:"perHour,omitempty"`
+	PerDay  int `json:"perDay,omitempty"`
+}
+
+// Count is how many messages were handed out over each window.
+type Count struct {
+	Hour int
+	Day  int
+}
+
+// Allows reports whether one more message stays within the limits.
+func (l Limits) Allows(c Count) bool {
+	return (l.PerHour == 0 || c.Hour < l.PerHour) && (l.PerDay == 0 || c.Day < l.PerDay)
 }
 
 // Availability says when a device takes work.
@@ -69,7 +90,12 @@ type SimPolicy struct {
 	Disabled       bool         `json:"disabled,omitempty"`
 	Accept         AcceptRules  `json:"accept"`
 	Availability   Availability `json:"availability"`
+	Limits         Limits       `json:"limits"`
 }
+
+// maxLimit bounds a cap to something a phone could plausibly send; a larger
+// number is a typo, not a policy.
+const maxLimit = 1_000_000
 
 // maxPatternLen bounds a recipient pattern. RE2 runs in linear time, so this is
 // not about catastrophic backtracking — only about keeping a rule readable and
@@ -132,6 +158,9 @@ func Validate(p Policy) error {
 	if err := validateAccept(p.Accept, "accept"); err != nil {
 		return err
 	}
+	if err := validateLimits(p.Limits, "limits"); err != nil {
+		return err
+	}
 	seen := map[int32]bool{}
 	for i, s := range p.Sims {
 		where := fmt.Sprintf("sims[%d]", i)
@@ -145,6 +174,19 @@ func Validate(p Policy) error {
 		if err := validateAccept(s.Accept, where+".accept"); err != nil {
 			return err
 		}
+		if err := validateLimits(s.Limits, where+".limits"); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateLimits(l Limits, where string) error {
+	if l.PerHour < 0 || l.PerDay < 0 || l.PerHour > maxLimit || l.PerDay > maxLimit {
+		return invalid("%s: caps are between 0 (none) and %d", where, maxLimit)
+	}
+	if l.PerHour > 0 && l.PerDay > 0 && l.PerDay < l.PerHour {
+		return invalid("%s: perDay (%d) is below perHour (%d)", where, l.PerDay, l.PerHour)
 	}
 	return nil
 }
@@ -308,6 +350,10 @@ type Device struct {
 	// Sims are its subscription ids, the default one first. Empty when the
 	// phone has not reported them.
 	Sims []int32
+	// Sent is what the device was handed over the limit windows, and SimSent
+	// the same per subscription. Only consulted when limits are set.
+	Sent    Count
+	SimSent map[int32]Count
 }
 
 // Choose decides whether a job for recipient may go to a device now, and from
@@ -322,7 +368,9 @@ func (p Policy) Choose(now time.Time, recipient string, d Device, requested int3
 	if !p.Accept.Accepts(recipient) {
 		return Choice{Never: true}
 	}
-	deviceOpen := p.Availability.Open(now, d.TimeZone)
+	// A device at its cap is "not now", like a closed window: the count
+	// falls as the window slides.
+	deviceOpen := p.Availability.Open(now, d.TimeZone) && p.Limits.Allows(d.Sent)
 
 	candidates := d.Sims
 	if requested != 0 {
@@ -341,7 +389,7 @@ func (p Policy) Choose(now time.Time, recipient string, d Device, requested int3
 			continue
 		}
 		never = false
-		if deviceOpen && (sp == nil || sp.Availability.Open(now, d.TimeZone)) {
+		if deviceOpen && (sp == nil || (sp.Availability.Open(now, d.TimeZone) && sp.Limits.Allows(d.SimSent[sub]))) {
 			return Choice{OK: true, SubscriptionID: sub}
 		}
 	}

@@ -516,7 +516,7 @@ func (j jobStore) ClaimSchedulable(ctx context.Context, now time.Time, limit int
 	return out, nil
 }
 
-func (j jobStore) MarkAssigned(ctx context.Context, id, deviceID uuid.UUID, at time.Time) error {
+func (j jobStore) MarkAssigned(ctx context.Context, id, deviceID uuid.UUID, subscriptionID int32, at time.Time) error {
 	defer j.s.lock()()
 	if err := j.s.takeFailure(); err != nil {
 		return err
@@ -533,9 +533,59 @@ func (j jobStore) MarkAssigned(ctx context.Context, id, deviceID uuid.UUID, at t
 	job.Status = store.JobAssigned
 	job.AssignedDeviceID = &dev
 	job.AssignedAt = &at2
+	job.AssignedSubscriptionID = nil
+	if subscriptionID != 0 {
+		sub := subscriptionID
+		job.AssignedSubscriptionID = &sub
+	}
 	job.Attempts++
 	job.UpdatedAt = at
 	return nil
+}
+
+func (j jobStore) CountDispatched(ctx context.Context, hourAgo, dayAgo time.Time) ([]store.DispatchCount, error) {
+	defer j.s.lock()()
+	if err := j.s.takeFailure(); err != nil {
+		return nil, err
+	}
+	type key struct {
+		device uuid.UUID
+		sub    int32
+		hasSub bool
+	}
+	counts := map[key]*store.DispatchCount{}
+	for _, job := range j.s.jobs {
+		if job.AssignedDeviceID == nil || job.AssignedAt == nil || job.AssignedAt.Before(dayAgo) {
+			continue
+		}
+		switch job.Status {
+		case store.JobAssigned, store.JobSent, store.JobDelivered:
+		default:
+			continue
+		}
+		k := key{device: *job.AssignedDeviceID}
+		if job.AssignedSubscriptionID != nil {
+			k.sub, k.hasSub = *job.AssignedSubscriptionID, true
+		}
+		c, ok := counts[k]
+		if !ok {
+			c = &store.DispatchCount{DeviceID: k.device}
+			if k.hasSub {
+				sub := k.sub
+				c.SubscriptionID = &sub
+			}
+			counts[k] = c
+		}
+		c.LastDay++
+		if !job.AssignedAt.Before(hourAgo) {
+			c.LastHour++
+		}
+	}
+	out := make([]store.DispatchCount, 0, len(counts))
+	for _, c := range counts {
+		out = append(out, *c)
+	}
+	return out, nil
 }
 
 func (j jobStore) Release(ctx context.Context, id uuid.UUID, reason string) error {
@@ -553,6 +603,7 @@ func (j jobStore) Release(ctx context.Context, id uuid.UUID, reason string) erro
 	job.Status = store.JobPending
 	job.AssignedDeviceID = nil
 	job.AssignedAt = nil
+	job.AssignedSubscriptionID = nil
 	job.ErrorMessage = reason
 	job.UpdatedAt = time.Now()
 	return nil
@@ -953,6 +1004,16 @@ func copyJob(j *store.Job) *store.Job {
 	cp.CompletedAt = copyTime(j.CompletedAt)
 	cp.RequestedDeviceID = copyUUID(j.RequestedDeviceID)
 	cp.AssignedDeviceID = copyUUID(j.AssignedDeviceID)
+	// Pointers into the stored job: copied, or a caller could edit the store
+	// through the snapshot it was handed.
+	if j.SubscriptionID != nil {
+		sub := *j.SubscriptionID
+		cp.SubscriptionID = &sub
+	}
+	if j.AssignedSubscriptionID != nil {
+		sub := *j.AssignedSubscriptionID
+		cp.AssignedSubscriptionID = &sub
+	}
 	cp.Callback.NextAttemptAt = copyTime(j.Callback.NextAttemptAt)
 	cp.Callback.DeliveredAt = copyTime(j.Callback.DeliveredAt)
 	return &cp

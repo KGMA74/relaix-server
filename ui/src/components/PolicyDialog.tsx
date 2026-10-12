@@ -1,9 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CalendarClock, Check, Globe2, Loader2, Plus, Regex, Search, Trash2, X } from "lucide-react";
+import { CalendarClock, Check, Gauge, Globe2, Loader2, Plus, Regex, Search, Trash2, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { api } from "../api/client";
-import type { AcceptRules, Availability, Country, Device, Policy, SimPolicy, TimeWindow } from "../api/types";
+import type { AcceptRules, Availability, Country, Device, Policy, SendLimits, SimPolicy, TimeWindow, UsageCount } from "../api/types";
 import { ErrorNote, Modal } from "./common";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -81,6 +81,7 @@ export function PolicyDialog({ device, onClose }: { device: Device; onClose: () 
     availability: device.policy?.availability ?? {},
     accept: device.policy?.accept ?? {},
     sims: device.policy?.sims ?? [],
+    limits: device.policy?.limits ?? {},
   }));
 
   const sims = [...(device.sims ?? [])].sort((a, b) => a.slotIndex - b.slotIndex);
@@ -89,14 +90,23 @@ export function PolicyDialog({ device, onClose }: { device: Device; onClose: () 
   const setSim = (next: SimPolicy) =>
     setDraft((d) => ({ ...d, sims: [...(d.sims ?? []).filter((s) => s.subscriptionId !== next.subscriptionId), next] }));
 
+  const badLimits = (l?: SendLimits) => !!l?.perHour && !!l?.perDay && l.perDay < l.perHour;
   const invalid =
-    patternError(draft.accept.pattern) !== null || (draft.sims ?? []).some((s) => patternError(s.accept.pattern) !== null);
+    patternError(draft.accept.pattern) !== null ||
+    badLimits(draft.limits) ||
+    (draft.sims ?? []).some((s) => patternError(s.accept.pattern) !== null || badLimits(s.limits));
 
   const save = useMutation({
     mutationFn: () => {
       // A SIM entry that restricts nothing is dropped rather than stored.
       const sims = (draft.sims ?? []).filter(
-        (s) => s.disabled || s.accept.countries?.length || s.accept.pattern || s.availability.windows?.length,
+        (s) =>
+          s.disabled ||
+          s.accept.countries?.length ||
+          s.accept.pattern ||
+          s.availability.windows?.length ||
+          s.limits?.perHour ||
+          s.limits?.perDay,
       );
       return api.putPolicy(device.deviceId, { ...draft, sims });
     },
@@ -137,6 +147,12 @@ export function PolicyDialog({ device, onClose }: { device: Device; onClose: () 
             phoneZone={device.timeZone}
           />
           <AcceptEditor value={draft.accept} onChange={(accept) => setDraft((d) => ({ ...d, accept }))} countries={list} />
+          <LimitsEditor
+            value={draft.limits ?? {}}
+            onChange={(limits) => setDraft((d) => ({ ...d, limits }))}
+            usage={device.usage}
+            hint="Toutes SIM confondues. Au plafond, le téléphone n'est plus choisi jusqu'à ce que la fenêtre glisse."
+          />
         </TabsContent>
 
         {sims.map((s) => {
@@ -165,6 +181,12 @@ export function PolicyDialog({ device, onClose }: { device: Device; onClose: () 
                   inherits
                 />
                 <AcceptEditor value={sp.accept} onChange={(accept) => setSim({ ...sp, accept })} countries={list} />
+                <LimitsEditor
+                  value={sp.limits ?? {}}
+                  onChange={(limits) => setSim({ ...sp, limits })}
+                  usage={device.usage?.sims?.[String(s.subscriptionId)]}
+                  hint="Plafond propre à cette SIM : au-delà, l'autre SIM prend le relais si ses règles le permettent."
+                />
               </fieldset>
             </TabsContent>
           );
@@ -438,6 +460,53 @@ function AcceptEditor({
           </div>
         </div>
       </div>
+    </Section>
+  );
+}
+
+/** The send caps: how much the device or SIM may be handed, with what it was handed. */
+function LimitsEditor({
+  value,
+  onChange,
+  usage,
+  hint,
+}: {
+  value: SendLimits;
+  onChange: (v: SendLimits) => void;
+  usage?: UsageCount;
+  hint: string;
+}) {
+  const field = (key: keyof SendLimits, label: string, used?: number) => (
+    <div>
+      <label className="label">{label}</label>
+      <input
+        type="number"
+        min={0}
+        inputMode="numeric"
+        className="input"
+        placeholder="Illimité"
+        value={value[key] || ""}
+        onChange={(e) => {
+          const n = Math.max(0, Math.floor(Number(e.target.value) || 0));
+          onChange({ ...value, [key]: n || undefined });
+        }}
+      />
+      {used !== undefined && (
+        <p className={cn("mt-1 text-xs", value[key] && used >= (value[key] ?? 0) ? "text-warning" : "text-muted-foreground")}>
+          {used} envoyé{used > 1 ? "s" : ""}
+          {value[key] ? ` sur ${value[key]}` : ""}
+        </p>
+      )}
+    </div>
+  );
+  const inverted = !!value.perHour && !!value.perDay && value.perDay < value.perHour;
+  return (
+    <Section icon={Gauge} title="Plafonds d'envoi" hint={hint}>
+      <div className="grid gap-3 sm:grid-cols-2">
+        {field("perHour", "Par heure (60 min glissantes)", usage?.lastHour ?? 0)}
+        {field("perDay", "Par jour (24 h glissantes)", usage?.lastDay ?? 0)}
+      </div>
+      {inverted && <p className="mt-2 text-xs text-destructive">Le plafond par jour ne peut pas être sous le plafond par heure.</p>}
     </Section>
   );
 }

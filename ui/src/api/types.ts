@@ -19,6 +19,8 @@ export interface Job {
   priority: number;
   deviceId?: string;
   subscriptionId?: number;
+  /** The SIM the job was handed to: requested, or picked by the device's rules. */
+  sentFromSubscriptionId?: number;
   attempts: number;
   partsSent: number;
   errorCode?: string;
@@ -96,6 +98,24 @@ export interface Device {
   policy: Policy;
   /** The device's own hours are open now (SIM hours aside). */
   availableNow: boolean;
+  /** What the device was handed, as the scheduler counts it against its caps. */
+  usage: Usage;
+}
+
+export interface UsageCount {
+  lastHour: number;
+  lastDay: number;
+}
+
+export interface Usage extends UsageCount {
+  /** Per subscription id, for SIMs named on their jobs. */
+  sims?: Record<string, UsageCount>;
+}
+
+/** Caps over sliding windows, in messages. 0 or absent: no cap. */
+export interface SendLimits {
+  perHour?: number;
+  perDay?: number;
 }
 
 /** A daily slot. Minutes since midnight; end exclusive; end <= start runs past midnight. */
@@ -124,6 +144,7 @@ export interface SimPolicy {
   disabled?: boolean;
   accept: AcceptRules;
   availability: Availability;
+  limits?: SendLimits;
 }
 
 /** When a device takes work and for whom. Every empty field restricts nothing. */
@@ -133,6 +154,7 @@ export interface Policy {
   accept: AcceptRules;
   sims?: SimPolicy[];
   updatedAt?: string;
+  limits?: SendLimits;
 }
 
 export interface Country {

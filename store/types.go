@@ -18,6 +18,16 @@ import (
 	"github.com/KGMA74/relaix-server/policy"
 )
 
+// DispatchCount is how many messages one device, or one of its SIMs, was
+// handed over the send-limit windows. SubscriptionID is nil for messages sent
+// from the phone's default SIM without naming it.
+type DispatchCount struct {
+	DeviceID       uuid.UUID
+	SubscriptionID *int32
+	LastHour       int
+	LastDay        int
+}
+
 // JobStatus is the lifecycle state of a job. The values match the CHECK
 // constraint on jobs.status; they are a Go string type rather than an int so
 // that a value read from the database is self-describing in a log line.
@@ -204,6 +214,11 @@ type Job struct {
 	// Android per handset, so the same number identifies different SIMs on two
 	// phones. Naming one without naming a device is refused at the API.
 	SubscriptionID *int32
+
+	// AssignedSubscriptionID is the SIM the job was handed to: the requested
+	// one, or the one the device's rules picked. Nil while unassigned, or when
+	// the phone's default was used without being named. Cleared on release.
+	AssignedSubscriptionID *int32
 
 	Status       JobStatus
 	ErrorCode    string

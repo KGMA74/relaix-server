@@ -431,7 +431,7 @@ func testDevices(t *testing.T, newStore Factory) {
 		if err != nil {
 			t.Fatalf("Jobs.Create: %v", err)
 		}
-		if err := s.Jobs().MarkAssigned(ctx, job.ID, dev.ID, time.Now()); err != nil {
+		if err := s.Jobs().MarkAssigned(ctx, job.ID, dev.ID, 0, time.Now()); err != nil {
 			t.Fatalf("MarkAssigned: %v", err)
 		}
 
@@ -567,7 +567,7 @@ func testJobs(t *testing.T, newStore Factory) {
 		job := newJob(t, s, &store.Job{})
 
 		at := time.Now().UTC().Truncate(time.Millisecond)
-		if err := s.Jobs().MarkAssigned(ctx, job.ID, dev.ID, at); err != nil {
+		if err := s.Jobs().MarkAssigned(ctx, job.ID, dev.ID, 0, at); err != nil {
 			t.Fatalf("MarkAssigned: %v", err)
 		}
 
@@ -583,7 +583,7 @@ func testJobs(t *testing.T, newStore Factory) {
 		}
 
 		// Assigning twice must fail: the second caller lost the race.
-		if err := s.Jobs().MarkAssigned(ctx, job.ID, dev.ID, at); !errors.Is(err, store.ErrConflict) {
+		if err := s.Jobs().MarkAssigned(ctx, job.ID, dev.ID, 0, at); !errors.Is(err, store.ErrConflict) {
 			t.Errorf("second MarkAssigned = %v, want ErrConflict", err)
 		}
 
@@ -606,7 +606,7 @@ func testJobs(t *testing.T, newStore Factory) {
 
 	t.Run("assign unknown job is ErrNotFound", func(t *testing.T) {
 		s := newStore(t)
-		err := s.Jobs().MarkAssigned(ctx, uuid.New(), uuid.New(), time.Now())
+		err := s.Jobs().MarkAssigned(ctx, uuid.New(), uuid.New(), 0, time.Now())
 		if !errors.Is(err, store.ErrNotFound) {
 			t.Fatalf("MarkAssigned = %v, want ErrNotFound", err)
 		}
@@ -680,7 +680,7 @@ func testJobs(t *testing.T, newStore Factory) {
 		mine := newJob(t, s, &store.Job{Body: "mine"})
 		newJob(t, s, &store.Job{Body: "unassigned"})
 
-		if err := s.Jobs().MarkAssigned(ctx, mine.ID, dev.ID, time.Now()); err != nil {
+		if err := s.Jobs().MarkAssigned(ctx, mine.ID, dev.ID, 0, time.Now()); err != nil {
 			t.Fatalf("MarkAssigned: %v", err)
 		}
 
@@ -863,7 +863,7 @@ func testJobs(t *testing.T, newStore Factory) {
 		cm := newJob(t, s, &store.Job{Recipient: "+237670000001"})
 		requested := newJob(t, s, &store.Job{Recipient: "+237670000002", RequestedDeviceID: &dev.ID})
 		fr := newJob(t, s, &store.Job{Recipient: "+33600000001"})
-		if err := s.Jobs().MarkAssigned(ctx, fr.ID, dev.ID, time.Now()); err != nil {
+		if err := s.Jobs().MarkAssigned(ctx, fr.ID, dev.ID, 0, time.Now()); err != nil {
 			t.Fatalf("MarkAssigned: %v", err)
 		}
 		if err := s.Jobs().Complete(ctx, fr.ID, store.JobResult{
@@ -912,6 +912,80 @@ func testJobs(t *testing.T, newStore Factory) {
 
 		from, to := requested.CreatedAt, fr.CreatedAt
 		want(t, "range is [from, to)", ids(t, store.JobFilter{CreatedFrom: &from, CreatedTo: &to}), requested.ID)
+	})
+
+	t.Run("dispatch counts per device and SIM over the windows", func(t *testing.T) {
+		s := newStore(t)
+		dev, err := s.Devices().Create(ctx, &store.Device{Label: "counted"}, "hash-count")
+		if err != nil {
+			t.Fatalf("Create device: %v", err)
+		}
+		now := time.Now().UTC()
+		assign := func(sub int32, at time.Time) *store.Job {
+			t.Helper()
+			j, err := s.Jobs().Create(ctx, &store.Job{Recipient: "+22670000000", Body: "x", Mode: store.ModeQueued})
+			if err != nil {
+				t.Fatalf("Jobs.Create: %v", err)
+			}
+			if err := s.Jobs().MarkAssigned(ctx, j.ID, dev.ID, sub, at); err != nil {
+				t.Fatalf("MarkAssigned: %v", err)
+			}
+			return j
+		}
+
+		assign(2, now.Add(-10*time.Minute))            // SIM 2, this hour
+		assign(2, now.Add(-5*time.Hour))               // SIM 2, today
+		assign(0, now.Add(-20*time.Minute))            // default SIM, this hour
+		assign(2, now.Add(-30*time.Hour))              // outside the day
+		released := assign(2, now.Add(-5*time.Minute)) // released: not counted
+		failed := assign(2, now.Add(-15*time.Minute))  // failed: not counted
+		sent := assign(2, now.Add(-25*time.Minute))    // sent: counted
+		if err := s.Jobs().Release(ctx, released.ID, "x"); err != nil {
+			t.Fatalf("Release: %v", err)
+		}
+		if err := s.Jobs().Complete(ctx, failed.ID, store.JobResult{Status: store.JobFailed, CompletedAt: now}); err != nil {
+			t.Fatalf("Complete failed: %v", err)
+		}
+		if err := s.Jobs().Complete(ctx, sent.ID, store.JobResult{Status: store.JobSent, PartsSent: 1, CompletedAt: now}); err != nil {
+			t.Fatalf("Complete sent: %v", err)
+		}
+
+		got, err := s.Jobs().CountDispatched(ctx, now.Add(-time.Hour), now.Add(-24*time.Hour))
+		if err != nil {
+			t.Fatalf("CountDispatched: %v", err)
+		}
+		var sim2, def *store.DispatchCount
+		for i := range got {
+			c := &got[i]
+			if c.DeviceID != dev.ID {
+				t.Errorf("count for unknown device %v", c.DeviceID)
+				continue
+			}
+			if c.SubscriptionID == nil {
+				def = c
+			} else if *c.SubscriptionID == 2 {
+				sim2 = c
+			}
+		}
+		if sim2 == nil || sim2.LastHour != 2 || sim2.LastDay != 3 {
+			t.Errorf("SIM 2 = %+v, want 2 this hour, 3 today", sim2)
+		}
+		if def == nil || def.LastHour != 1 || def.LastDay != 1 {
+			t.Errorf("default SIM = %+v, want 1 and 1", def)
+		}
+
+		// A released job forgets the SIM it was handed to.
+		j, err := s.Jobs().Get(ctx, released.ID)
+		if err != nil {
+			t.Fatalf("Get: %v", err)
+		}
+		if j.AssignedSubscriptionID != nil {
+			t.Errorf("released job still names SIM %d", *j.AssignedSubscriptionID)
+		}
+		j, _ = s.Jobs().Get(ctx, sent.ID)
+		if j.AssignedSubscriptionID == nil || *j.AssignedSubscriptionID != 2 {
+			t.Errorf("sent job SIM = %v, want 2", j.AssignedSubscriptionID)
+		}
 	})
 
 	t.Run("count by status", func(t *testing.T) {

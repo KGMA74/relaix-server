@@ -12,6 +12,7 @@ func ToProto(p Policy) *v1.DevicePolicy {
 		Version:      p.Version,
 		Availability: availabilityToProto(p.Availability),
 		Accept:       acceptToProto(p.Accept),
+		Limits:       limitsToProto(p.Limits),
 	}
 	if p.UpdatedAt != nil {
 		out.UpdatedAt = timestamppb.New(*p.UpdatedAt)
@@ -22,6 +23,7 @@ func ToProto(p Policy) *v1.DevicePolicy {
 			Disabled:       s.Disabled,
 			Accept:         acceptToProto(s.Accept),
 			Availability:   availabilityToProto(s.Availability),
+			Limits:         limitsToProto(s.Limits),
 		})
 	}
 	return out
@@ -33,6 +35,7 @@ func FromProto(m *v1.DevicePolicy) Policy {
 	p := Policy{
 		Availability: availabilityFromProto(m.GetAvailability()),
 		Accept:       acceptFromProto(m.GetAccept()),
+		Limits:       limitsFromProto(m.GetLimits()),
 	}
 	for _, s := range m.GetSims() {
 		p.Sims = append(p.Sims, SimPolicy{
@@ -40,6 +43,7 @@ func FromProto(m *v1.DevicePolicy) Policy {
 			Disabled:       s.GetDisabled(),
 			Accept:         acceptFromProto(s.GetAccept()),
 			Availability:   availabilityFromProto(s.GetAvailability()),
+			Limits:         limitsFromProto(s.GetLimits()),
 		})
 	}
 	return p
@@ -83,4 +87,12 @@ func acceptToProto(r AcceptRules) *v1.AcceptRules {
 
 func acceptFromProto(m *v1.AcceptRules) AcceptRules {
 	return AcceptRules{Countries: m.GetCountries(), Pattern: m.GetRecipientPattern()}
+}
+
+func limitsToProto(l Limits) *v1.SendLimits {
+	return &v1.SendLimits{PerHour: int32(l.PerHour), PerDay: int32(l.PerDay)}
+}
+
+func limitsFromProto(m *v1.SendLimits) Limits {
+	return Limits{PerHour: int(m.GetPerHour()), PerDay: int(m.GetPerDay())}
 }

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"net/http"
 	"testing"
 
@@ -81,5 +82,33 @@ func TestCountries(t *testing.T) {
 	}
 	if !found || len(got.Countries) < 200 {
 		t.Errorf("countries: %d entries, BF found %v", len(got.Countries), found)
+	}
+}
+
+// GET /devices reports what each device was handed, as the scheduler counts
+// it against the caps.
+func TestDeviceListingReportsUsage(t *testing.T) {
+	h := newHarness(t, Options{APIKey: testAPIKey})
+	dev := h.store.SeedDevice(&store.Device{Label: "u", Enabled: true})
+	ctx := context.Background()
+	for _, sub := range []int32{2, 0} {
+		j, err := h.store.Jobs().Create(ctx, &store.Job{Recipient: "+22670000000", Body: "x", Mode: store.ModeQueued})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := h.store.Jobs().MarkAssigned(ctx, j.ID, dev.ID, sub, testNow); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	list := decode[struct {
+		Devices []deviceResponse `json:"devices"`
+	}](t, h.do(t, http.MethodGet, "/devices", nil))
+	if len(list.Devices) != 1 {
+		t.Fatalf("%d devices", len(list.Devices))
+	}
+	u := list.Devices[0].Usage
+	if u.LastHour != 2 || u.LastDay != 2 || u.Sims[2].LastHour != 1 {
+		t.Errorf("usage = %+v, want 2/2 with 1 on SIM 2", u)
 	}
 }

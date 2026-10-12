@@ -908,8 +908,10 @@ type DevicePolicy struct {
 	Availability *Availability `protobuf:"bytes,2,opt,name=availability,proto3" json:"availability,omitempty"`
 	Accept       *AcceptRules  `protobuf:"bytes,3,opt,name=accept,proto3" json:"accept,omitempty"`
 	// Per-SIM rules, on top of the device's: a SIM must satisfy both.
-	Sims          []*SimPolicy           `protobuf:"bytes,4,rep,name=sims,proto3" json:"sims,omitempty"`
-	UpdatedAt     *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	Sims      []*SimPolicy           `protobuf:"bytes,4,rep,name=sims,proto3" json:"sims,omitempty"`
+	UpdatedAt *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	// How much the device may send, all SIMs together.
+	Limits        *SendLimits `protobuf:"bytes,6,opt,name=limits,proto3" json:"limits,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -979,6 +981,72 @@ func (x *DevicePolicy) GetUpdatedAt() *timestamppb.Timestamp {
 	return nil
 }
 
+func (x *DevicePolicy) GetLimits() *SendLimits {
+	if x != nil {
+		return x.Limits
+	}
+	return nil
+}
+
+// Caps on what a device or a SIM is handed. Carriers throttle or block a SIM
+// that sends too much, so a phone should stop being chosen before that, not
+// after. Counted by the server over sliding windows, in messages handed to the
+// device — a multipart message counts once — including those still in flight.
+// A device or SIM at its cap is "not now": queued jobs wait or go elsewhere.
+type SendLimits struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Messages in the last 60 minutes. 0: no cap.
+	PerHour int32 `protobuf:"varint,1,opt,name=per_hour,json=perHour,proto3" json:"per_hour,omitempty"`
+	// Messages in the last 24 hours. 0: no cap.
+	PerDay        int32 `protobuf:"varint,2,opt,name=per_day,json=perDay,proto3" json:"per_day,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SendLimits) Reset() {
+	*x = SendLimits{}
+	mi := &file_smsgateway_v1_device_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SendLimits) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SendLimits) ProtoMessage() {}
+
+func (x *SendLimits) ProtoReflect() protoreflect.Message {
+	mi := &file_smsgateway_v1_device_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SendLimits.ProtoReflect.Descriptor instead.
+func (*SendLimits) Descriptor() ([]byte, []int) {
+	return file_smsgateway_v1_device_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *SendLimits) GetPerHour() int32 {
+	if x != nil {
+		return x.PerHour
+	}
+	return 0
+}
+
+func (x *SendLimits) GetPerDay() int32 {
+	if x != nil {
+		return x.PerDay
+	}
+	return 0
+}
+
 // When a device takes work.
 type Availability struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -993,7 +1061,7 @@ type Availability struct {
 
 func (x *Availability) Reset() {
 	*x = Availability{}
-	mi := &file_smsgateway_v1_device_proto_msgTypes[9]
+	mi := &file_smsgateway_v1_device_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1005,7 +1073,7 @@ func (x *Availability) String() string {
 func (*Availability) ProtoMessage() {}
 
 func (x *Availability) ProtoReflect() protoreflect.Message {
-	mi := &file_smsgateway_v1_device_proto_msgTypes[9]
+	mi := &file_smsgateway_v1_device_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1018,7 +1086,7 @@ func (x *Availability) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Availability.ProtoReflect.Descriptor instead.
 func (*Availability) Descriptor() ([]byte, []int) {
-	return file_smsgateway_v1_device_proto_rawDescGZIP(), []int{9}
+	return file_smsgateway_v1_device_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *Availability) GetTimeZone() string {
@@ -1051,7 +1119,7 @@ type TimeWindow struct {
 
 func (x *TimeWindow) Reset() {
 	*x = TimeWindow{}
-	mi := &file_smsgateway_v1_device_proto_msgTypes[10]
+	mi := &file_smsgateway_v1_device_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1063,7 +1131,7 @@ func (x *TimeWindow) String() string {
 func (*TimeWindow) ProtoMessage() {}
 
 func (x *TimeWindow) ProtoReflect() protoreflect.Message {
-	mi := &file_smsgateway_v1_device_proto_msgTypes[10]
+	mi := &file_smsgateway_v1_device_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1076,7 +1144,7 @@ func (x *TimeWindow) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TimeWindow.ProtoReflect.Descriptor instead.
 func (*TimeWindow) Descriptor() ([]byte, []int) {
-	return file_smsgateway_v1_device_proto_rawDescGZIP(), []int{10}
+	return file_smsgateway_v1_device_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *TimeWindow) GetDays() []int32 {
@@ -1116,7 +1184,7 @@ type AcceptRules struct {
 
 func (x *AcceptRules) Reset() {
 	*x = AcceptRules{}
-	mi := &file_smsgateway_v1_device_proto_msgTypes[11]
+	mi := &file_smsgateway_v1_device_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1128,7 +1196,7 @@ func (x *AcceptRules) String() string {
 func (*AcceptRules) ProtoMessage() {}
 
 func (x *AcceptRules) ProtoReflect() protoreflect.Message {
-	mi := &file_smsgateway_v1_device_proto_msgTypes[11]
+	mi := &file_smsgateway_v1_device_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1141,7 +1209,7 @@ func (x *AcceptRules) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AcceptRules.ProtoReflect.Descriptor instead.
 func (*AcceptRules) Descriptor() ([]byte, []int) {
-	return file_smsgateway_v1_device_proto_rawDescGZIP(), []int{11}
+	return file_smsgateway_v1_device_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *AcceptRules) GetCountries() []string {
@@ -1167,14 +1235,16 @@ type SimPolicy struct {
 	Disabled bool         `protobuf:"varint,2,opt,name=disabled,proto3" json:"disabled,omitempty"`
 	Accept   *AcceptRules `protobuf:"bytes,3,opt,name=accept,proto3" json:"accept,omitempty"`
 	// Narrows the device's availability for this SIM: both must hold.
-	Availability  *Availability `protobuf:"bytes,4,opt,name=availability,proto3" json:"availability,omitempty"`
+	Availability *Availability `protobuf:"bytes,4,opt,name=availability,proto3" json:"availability,omitempty"`
+	// Caps for this SIM alone, on top of the device's.
+	Limits        *SendLimits `protobuf:"bytes,5,opt,name=limits,proto3" json:"limits,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *SimPolicy) Reset() {
 	*x = SimPolicy{}
-	mi := &file_smsgateway_v1_device_proto_msgTypes[12]
+	mi := &file_smsgateway_v1_device_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1186,7 +1256,7 @@ func (x *SimPolicy) String() string {
 func (*SimPolicy) ProtoMessage() {}
 
 func (x *SimPolicy) ProtoReflect() protoreflect.Message {
-	mi := &file_smsgateway_v1_device_proto_msgTypes[12]
+	mi := &file_smsgateway_v1_device_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1199,7 +1269,7 @@ func (x *SimPolicy) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SimPolicy.ProtoReflect.Descriptor instead.
 func (*SimPolicy) Descriptor() ([]byte, []int) {
-	return file_smsgateway_v1_device_proto_rawDescGZIP(), []int{12}
+	return file_smsgateway_v1_device_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *SimPolicy) GetSubscriptionId() int32 {
@@ -1230,6 +1300,13 @@ func (x *SimPolicy) GetAvailability() *Availability {
 	return nil
 }
 
+func (x *SimPolicy) GetLimits() *SendLimits {
+	if x != nil {
+		return x.Limits
+	}
+	return nil
+}
+
 type Leave struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Free text for the log, e.g. "forgotten on the device".
@@ -1240,7 +1317,7 @@ type Leave struct {
 
 func (x *Leave) Reset() {
 	*x = Leave{}
-	mi := &file_smsgateway_v1_device_proto_msgTypes[13]
+	mi := &file_smsgateway_v1_device_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1252,7 +1329,7 @@ func (x *Leave) String() string {
 func (*Leave) ProtoMessage() {}
 
 func (x *Leave) ProtoReflect() protoreflect.Message {
-	mi := &file_smsgateway_v1_device_proto_msgTypes[13]
+	mi := &file_smsgateway_v1_device_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1265,7 +1342,7 @@ func (x *Leave) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Leave.ProtoReflect.Descriptor instead.
 func (*Leave) Descriptor() ([]byte, []int) {
-	return file_smsgateway_v1_device_proto_rawDescGZIP(), []int{13}
+	return file_smsgateway_v1_device_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *Leave) GetReason() string {
@@ -1287,7 +1364,7 @@ type Heartbeat struct {
 
 func (x *Heartbeat) Reset() {
 	*x = Heartbeat{}
-	mi := &file_smsgateway_v1_device_proto_msgTypes[14]
+	mi := &file_smsgateway_v1_device_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1299,7 +1376,7 @@ func (x *Heartbeat) String() string {
 func (*Heartbeat) ProtoMessage() {}
 
 func (x *Heartbeat) ProtoReflect() protoreflect.Message {
-	mi := &file_smsgateway_v1_device_proto_msgTypes[14]
+	mi := &file_smsgateway_v1_device_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1312,7 +1389,7 @@ func (x *Heartbeat) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Heartbeat.ProtoReflect.Descriptor instead.
 func (*Heartbeat) Descriptor() ([]byte, []int) {
-	return file_smsgateway_v1_device_proto_rawDescGZIP(), []int{14}
+	return file_smsgateway_v1_device_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *Heartbeat) GetHealth() *DeviceHealth {
@@ -1361,7 +1438,7 @@ type DeviceHealth struct {
 
 func (x *DeviceHealth) Reset() {
 	*x = DeviceHealth{}
-	mi := &file_smsgateway_v1_device_proto_msgTypes[15]
+	mi := &file_smsgateway_v1_device_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1373,7 +1450,7 @@ func (x *DeviceHealth) String() string {
 func (*DeviceHealth) ProtoMessage() {}
 
 func (x *DeviceHealth) ProtoReflect() protoreflect.Message {
-	mi := &file_smsgateway_v1_device_proto_msgTypes[15]
+	mi := &file_smsgateway_v1_device_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1386,7 +1463,7 @@ func (x *DeviceHealth) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeviceHealth.ProtoReflect.Descriptor instead.
 func (*DeviceHealth) Descriptor() ([]byte, []int) {
-	return file_smsgateway_v1_device_proto_rawDescGZIP(), []int{15}
+	return file_smsgateway_v1_device_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *DeviceHealth) GetBatteryLevel() int32 {
@@ -1464,7 +1541,7 @@ type SimHealth struct {
 
 func (x *SimHealth) Reset() {
 	*x = SimHealth{}
-	mi := &file_smsgateway_v1_device_proto_msgTypes[16]
+	mi := &file_smsgateway_v1_device_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1476,7 +1553,7 @@ func (x *SimHealth) String() string {
 func (*SimHealth) ProtoMessage() {}
 
 func (x *SimHealth) ProtoReflect() protoreflect.Message {
-	mi := &file_smsgateway_v1_device_proto_msgTypes[16]
+	mi := &file_smsgateway_v1_device_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1489,7 +1566,7 @@ func (x *SimHealth) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SimHealth.ProtoReflect.Descriptor instead.
 func (*SimHealth) Descriptor() ([]byte, []int) {
-	return file_smsgateway_v1_device_proto_rawDescGZIP(), []int{16}
+	return file_smsgateway_v1_device_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *SimHealth) GetSubscriptionId() int32 {
@@ -1549,7 +1626,7 @@ type JobAck struct {
 
 func (x *JobAck) Reset() {
 	*x = JobAck{}
-	mi := &file_smsgateway_v1_device_proto_msgTypes[17]
+	mi := &file_smsgateway_v1_device_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1561,7 +1638,7 @@ func (x *JobAck) String() string {
 func (*JobAck) ProtoMessage() {}
 
 func (x *JobAck) ProtoReflect() protoreflect.Message {
-	mi := &file_smsgateway_v1_device_proto_msgTypes[17]
+	mi := &file_smsgateway_v1_device_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1574,7 +1651,7 @@ func (x *JobAck) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use JobAck.ProtoReflect.Descriptor instead.
 func (*JobAck) Descriptor() ([]byte, []int) {
-	return file_smsgateway_v1_device_proto_rawDescGZIP(), []int{17}
+	return file_smsgateway_v1_device_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *JobAck) GetJobId() string {
@@ -1627,7 +1704,7 @@ type JobResult struct {
 
 func (x *JobResult) Reset() {
 	*x = JobResult{}
-	mi := &file_smsgateway_v1_device_proto_msgTypes[18]
+	mi := &file_smsgateway_v1_device_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1639,7 +1716,7 @@ func (x *JobResult) String() string {
 func (*JobResult) ProtoMessage() {}
 
 func (x *JobResult) ProtoReflect() protoreflect.Message {
-	mi := &file_smsgateway_v1_device_proto_msgTypes[18]
+	mi := &file_smsgateway_v1_device_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1652,7 +1729,7 @@ func (x *JobResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use JobResult.ProtoReflect.Descriptor instead.
 func (*JobResult) Descriptor() ([]byte, []int) {
-	return file_smsgateway_v1_device_proto_rawDescGZIP(), []int{18}
+	return file_smsgateway_v1_device_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *JobResult) GetJobId() string {
@@ -1720,7 +1797,7 @@ type RegisterAck struct {
 
 func (x *RegisterAck) Reset() {
 	*x = RegisterAck{}
-	mi := &file_smsgateway_v1_device_proto_msgTypes[19]
+	mi := &file_smsgateway_v1_device_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1732,7 +1809,7 @@ func (x *RegisterAck) String() string {
 func (*RegisterAck) ProtoMessage() {}
 
 func (x *RegisterAck) ProtoReflect() protoreflect.Message {
-	mi := &file_smsgateway_v1_device_proto_msgTypes[19]
+	mi := &file_smsgateway_v1_device_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1745,7 +1822,7 @@ func (x *RegisterAck) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RegisterAck.ProtoReflect.Descriptor instead.
 func (*RegisterAck) Descriptor() ([]byte, []int) {
-	return file_smsgateway_v1_device_proto_rawDescGZIP(), []int{19}
+	return file_smsgateway_v1_device_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *RegisterAck) GetAccepted() bool {
@@ -1816,7 +1893,7 @@ type SendSmsJob struct {
 
 func (x *SendSmsJob) Reset() {
 	*x = SendSmsJob{}
-	mi := &file_smsgateway_v1_device_proto_msgTypes[20]
+	mi := &file_smsgateway_v1_device_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1828,7 +1905,7 @@ func (x *SendSmsJob) String() string {
 func (*SendSmsJob) ProtoMessage() {}
 
 func (x *SendSmsJob) ProtoReflect() protoreflect.Message {
-	mi := &file_smsgateway_v1_device_proto_msgTypes[20]
+	mi := &file_smsgateway_v1_device_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1841,7 +1918,7 @@ func (x *SendSmsJob) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SendSmsJob.ProtoReflect.Descriptor instead.
 func (*SendSmsJob) Descriptor() ([]byte, []int) {
-	return file_smsgateway_v1_device_proto_rawDescGZIP(), []int{20}
+	return file_smsgateway_v1_device_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *SendSmsJob) GetJobId() string {
@@ -1899,7 +1976,7 @@ type CancelJob struct {
 
 func (x *CancelJob) Reset() {
 	*x = CancelJob{}
-	mi := &file_smsgateway_v1_device_proto_msgTypes[21]
+	mi := &file_smsgateway_v1_device_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1911,7 +1988,7 @@ func (x *CancelJob) String() string {
 func (*CancelJob) ProtoMessage() {}
 
 func (x *CancelJob) ProtoReflect() protoreflect.Message {
-	mi := &file_smsgateway_v1_device_proto_msgTypes[21]
+	mi := &file_smsgateway_v1_device_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1924,7 +2001,7 @@ func (x *CancelJob) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CancelJob.ProtoReflect.Descriptor instead.
 func (*CancelJob) Descriptor() ([]byte, []int) {
-	return file_smsgateway_v1_device_proto_rawDescGZIP(), []int{21}
+	return file_smsgateway_v1_device_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *CancelJob) GetJobId() string {
@@ -1945,7 +2022,7 @@ type Ping struct {
 
 func (x *Ping) Reset() {
 	*x = Ping{}
-	mi := &file_smsgateway_v1_device_proto_msgTypes[22]
+	mi := &file_smsgateway_v1_device_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1957,7 +2034,7 @@ func (x *Ping) String() string {
 func (*Ping) ProtoMessage() {}
 
 func (x *Ping) ProtoReflect() protoreflect.Message {
-	mi := &file_smsgateway_v1_device_proto_msgTypes[22]
+	mi := &file_smsgateway_v1_device_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1970,7 +2047,7 @@ func (x *Ping) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Ping.ProtoReflect.Descriptor instead.
 func (*Ping) Descriptor() ([]byte, []int) {
-	return file_smsgateway_v1_device_proto_rawDescGZIP(), []int{22}
+	return file_smsgateway_v1_device_proto_rawDescGZIP(), []int{23}
 }
 
 var File_smsgateway_v1_device_proto protoreflect.FileDescriptor
@@ -2041,14 +2118,19 @@ const file_smsgateway_v1_device_proto_rawDesc = "" +
 	"\x06health\x18\x02 \x01(\v2\x1b.smsgateway.v1.DeviceHealthR\x06health\x12&\n" +
 	"\x0fpending_job_ids\x18\x03 \x03(\tR\rpendingJobIds\"C\n" +
 	"\fPolicyUpdate\x123\n" +
-	"\x06policy\x18\x01 \x01(\v2\x1b.smsgateway.v1.DevicePolicyR\x06policy\"\x86\x02\n" +
+	"\x06policy\x18\x01 \x01(\v2\x1b.smsgateway.v1.DevicePolicyR\x06policy\"\xb9\x02\n" +
 	"\fDevicePolicy\x12\x18\n" +
 	"\aversion\x18\x01 \x01(\x03R\aversion\x12?\n" +
 	"\favailability\x18\x02 \x01(\v2\x1b.smsgateway.v1.AvailabilityR\favailability\x122\n" +
 	"\x06accept\x18\x03 \x01(\v2\x1a.smsgateway.v1.AcceptRulesR\x06accept\x12,\n" +
 	"\x04sims\x18\x04 \x03(\v2\x18.smsgateway.v1.SimPolicyR\x04sims\x129\n" +
 	"\n" +
-	"updated_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\"`\n" +
+	"updated_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x121\n" +
+	"\x06limits\x18\x06 \x01(\v2\x19.smsgateway.v1.SendLimitsR\x06limits\"@\n" +
+	"\n" +
+	"SendLimits\x12\x19\n" +
+	"\bper_hour\x18\x01 \x01(\x05R\aperHour\x12\x17\n" +
+	"\aper_day\x18\x02 \x01(\x05R\x06perDay\"`\n" +
 	"\fAvailability\x12\x1b\n" +
 	"\ttime_zone\x18\x01 \x01(\tR\btimeZone\x123\n" +
 	"\awindows\x18\x02 \x03(\v2\x19.smsgateway.v1.TimeWindowR\awindows\"b\n" +
@@ -2060,12 +2142,13 @@ const file_smsgateway_v1_device_proto_rawDesc = "" +
 	"end_minute\x18\x03 \x01(\x05R\tendMinute\"X\n" +
 	"\vAcceptRules\x12\x1c\n" +
 	"\tcountries\x18\x01 \x03(\tR\tcountries\x12+\n" +
-	"\x11recipient_pattern\x18\x02 \x01(\tR\x10recipientPattern\"\xc5\x01\n" +
+	"\x11recipient_pattern\x18\x02 \x01(\tR\x10recipientPattern\"\xf8\x01\n" +
 	"\tSimPolicy\x12'\n" +
 	"\x0fsubscription_id\x18\x01 \x01(\x05R\x0esubscriptionId\x12\x1a\n" +
 	"\bdisabled\x18\x02 \x01(\bR\bdisabled\x122\n" +
 	"\x06accept\x18\x03 \x01(\v2\x1a.smsgateway.v1.AcceptRulesR\x06accept\x12?\n" +
-	"\favailability\x18\x04 \x01(\v2\x1b.smsgateway.v1.AvailabilityR\favailability\"\x1f\n" +
+	"\favailability\x18\x04 \x01(\v2\x1b.smsgateway.v1.AvailabilityR\favailability\x121\n" +
+	"\x06limits\x18\x05 \x01(\v2\x19.smsgateway.v1.SendLimitsR\x06limits\"\x1f\n" +
 	"\x05Leave\x12\x16\n" +
 	"\x06reason\x18\x01 \x01(\tR\x06reason\"@\n" +
 	"\tHeartbeat\x123\n" +
@@ -2140,7 +2223,7 @@ func file_smsgateway_v1_device_proto_rawDescGZIP() []byte {
 }
 
 var file_smsgateway_v1_device_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_smsgateway_v1_device_proto_msgTypes = make([]protoimpl.MessageInfo, 23)
+var file_smsgateway_v1_device_proto_msgTypes = make([]protoimpl.MessageInfo, 24)
 var file_smsgateway_v1_device_proto_goTypes = []any{
 	(JobStatus)(0),                // 0: smsgateway.v1.JobStatus
 	(*EnrollRequest)(nil),         // 1: smsgateway.v1.EnrollRequest
@@ -2152,63 +2235,66 @@ var file_smsgateway_v1_device_proto_goTypes = []any{
 	(*Register)(nil),              // 7: smsgateway.v1.Register
 	(*PolicyUpdate)(nil),          // 8: smsgateway.v1.PolicyUpdate
 	(*DevicePolicy)(nil),          // 9: smsgateway.v1.DevicePolicy
-	(*Availability)(nil),          // 10: smsgateway.v1.Availability
-	(*TimeWindow)(nil),            // 11: smsgateway.v1.TimeWindow
-	(*AcceptRules)(nil),           // 12: smsgateway.v1.AcceptRules
-	(*SimPolicy)(nil),             // 13: smsgateway.v1.SimPolicy
-	(*Leave)(nil),                 // 14: smsgateway.v1.Leave
-	(*Heartbeat)(nil),             // 15: smsgateway.v1.Heartbeat
-	(*DeviceHealth)(nil),          // 16: smsgateway.v1.DeviceHealth
-	(*SimHealth)(nil),             // 17: smsgateway.v1.SimHealth
-	(*JobAck)(nil),                // 18: smsgateway.v1.JobAck
-	(*JobResult)(nil),             // 19: smsgateway.v1.JobResult
-	(*RegisterAck)(nil),           // 20: smsgateway.v1.RegisterAck
-	(*SendSmsJob)(nil),            // 21: smsgateway.v1.SendSmsJob
-	(*CancelJob)(nil),             // 22: smsgateway.v1.CancelJob
-	(*Ping)(nil),                  // 23: smsgateway.v1.Ping
-	(*timestamppb.Timestamp)(nil), // 24: google.protobuf.Timestamp
+	(*SendLimits)(nil),            // 10: smsgateway.v1.SendLimits
+	(*Availability)(nil),          // 11: smsgateway.v1.Availability
+	(*TimeWindow)(nil),            // 12: smsgateway.v1.TimeWindow
+	(*AcceptRules)(nil),           // 13: smsgateway.v1.AcceptRules
+	(*SimPolicy)(nil),             // 14: smsgateway.v1.SimPolicy
+	(*Leave)(nil),                 // 15: smsgateway.v1.Leave
+	(*Heartbeat)(nil),             // 16: smsgateway.v1.Heartbeat
+	(*DeviceHealth)(nil),          // 17: smsgateway.v1.DeviceHealth
+	(*SimHealth)(nil),             // 18: smsgateway.v1.SimHealth
+	(*JobAck)(nil),                // 19: smsgateway.v1.JobAck
+	(*JobResult)(nil),             // 20: smsgateway.v1.JobResult
+	(*RegisterAck)(nil),           // 21: smsgateway.v1.RegisterAck
+	(*SendSmsJob)(nil),            // 22: smsgateway.v1.SendSmsJob
+	(*CancelJob)(nil),             // 23: smsgateway.v1.CancelJob
+	(*Ping)(nil),                  // 24: smsgateway.v1.Ping
+	(*timestamppb.Timestamp)(nil), // 25: google.protobuf.Timestamp
 }
 var file_smsgateway_v1_device_proto_depIdxs = []int32{
 	3,  // 0: smsgateway.v1.EnrollRequest.device_info:type_name -> smsgateway.v1.DeviceInfo
 	4,  // 1: smsgateway.v1.DeviceInfo.sims:type_name -> smsgateway.v1.SimInfo
-	24, // 2: smsgateway.v1.DeviceMessage.sent_at:type_name -> google.protobuf.Timestamp
+	25, // 2: smsgateway.v1.DeviceMessage.sent_at:type_name -> google.protobuf.Timestamp
 	7,  // 3: smsgateway.v1.DeviceMessage.register:type_name -> smsgateway.v1.Register
-	15, // 4: smsgateway.v1.DeviceMessage.heartbeat:type_name -> smsgateway.v1.Heartbeat
-	18, // 5: smsgateway.v1.DeviceMessage.job_ack:type_name -> smsgateway.v1.JobAck
-	19, // 6: smsgateway.v1.DeviceMessage.job_result:type_name -> smsgateway.v1.JobResult
-	14, // 7: smsgateway.v1.DeviceMessage.leave:type_name -> smsgateway.v1.Leave
+	16, // 4: smsgateway.v1.DeviceMessage.heartbeat:type_name -> smsgateway.v1.Heartbeat
+	19, // 5: smsgateway.v1.DeviceMessage.job_ack:type_name -> smsgateway.v1.JobAck
+	20, // 6: smsgateway.v1.DeviceMessage.job_result:type_name -> smsgateway.v1.JobResult
+	15, // 7: smsgateway.v1.DeviceMessage.leave:type_name -> smsgateway.v1.Leave
 	8,  // 8: smsgateway.v1.DeviceMessage.policy_update:type_name -> smsgateway.v1.PolicyUpdate
-	24, // 9: smsgateway.v1.ServerMessage.sent_at:type_name -> google.protobuf.Timestamp
-	20, // 10: smsgateway.v1.ServerMessage.register_ack:type_name -> smsgateway.v1.RegisterAck
-	21, // 11: smsgateway.v1.ServerMessage.send_sms_job:type_name -> smsgateway.v1.SendSmsJob
-	22, // 12: smsgateway.v1.ServerMessage.cancel_job:type_name -> smsgateway.v1.CancelJob
-	23, // 13: smsgateway.v1.ServerMessage.ping:type_name -> smsgateway.v1.Ping
+	25, // 9: smsgateway.v1.ServerMessage.sent_at:type_name -> google.protobuf.Timestamp
+	21, // 10: smsgateway.v1.ServerMessage.register_ack:type_name -> smsgateway.v1.RegisterAck
+	22, // 11: smsgateway.v1.ServerMessage.send_sms_job:type_name -> smsgateway.v1.SendSmsJob
+	23, // 12: smsgateway.v1.ServerMessage.cancel_job:type_name -> smsgateway.v1.CancelJob
+	24, // 13: smsgateway.v1.ServerMessage.ping:type_name -> smsgateway.v1.Ping
 	9,  // 14: smsgateway.v1.ServerMessage.policy:type_name -> smsgateway.v1.DevicePolicy
 	3,  // 15: smsgateway.v1.Register.device_info:type_name -> smsgateway.v1.DeviceInfo
-	16, // 16: smsgateway.v1.Register.health:type_name -> smsgateway.v1.DeviceHealth
+	17, // 16: smsgateway.v1.Register.health:type_name -> smsgateway.v1.DeviceHealth
 	9,  // 17: smsgateway.v1.PolicyUpdate.policy:type_name -> smsgateway.v1.DevicePolicy
-	10, // 18: smsgateway.v1.DevicePolicy.availability:type_name -> smsgateway.v1.Availability
-	12, // 19: smsgateway.v1.DevicePolicy.accept:type_name -> smsgateway.v1.AcceptRules
-	13, // 20: smsgateway.v1.DevicePolicy.sims:type_name -> smsgateway.v1.SimPolicy
-	24, // 21: smsgateway.v1.DevicePolicy.updated_at:type_name -> google.protobuf.Timestamp
-	11, // 22: smsgateway.v1.Availability.windows:type_name -> smsgateway.v1.TimeWindow
-	12, // 23: smsgateway.v1.SimPolicy.accept:type_name -> smsgateway.v1.AcceptRules
-	10, // 24: smsgateway.v1.SimPolicy.availability:type_name -> smsgateway.v1.Availability
-	16, // 25: smsgateway.v1.Heartbeat.health:type_name -> smsgateway.v1.DeviceHealth
-	17, // 26: smsgateway.v1.DeviceHealth.sims:type_name -> smsgateway.v1.SimHealth
-	0,  // 27: smsgateway.v1.JobResult.status:type_name -> smsgateway.v1.JobStatus
-	24, // 28: smsgateway.v1.JobResult.completed_at:type_name -> google.protobuf.Timestamp
-	9,  // 29: smsgateway.v1.RegisterAck.policy:type_name -> smsgateway.v1.DevicePolicy
-	24, // 30: smsgateway.v1.SendSmsJob.expires_at:type_name -> google.protobuf.Timestamp
-	1,  // 31: smsgateway.v1.DeviceGateway.Enroll:input_type -> smsgateway.v1.EnrollRequest
-	5,  // 32: smsgateway.v1.DeviceGateway.Connect:input_type -> smsgateway.v1.DeviceMessage
-	2,  // 33: smsgateway.v1.DeviceGateway.Enroll:output_type -> smsgateway.v1.EnrollResponse
-	6,  // 34: smsgateway.v1.DeviceGateway.Connect:output_type -> smsgateway.v1.ServerMessage
-	33, // [33:35] is the sub-list for method output_type
-	31, // [31:33] is the sub-list for method input_type
-	31, // [31:31] is the sub-list for extension type_name
-	31, // [31:31] is the sub-list for extension extendee
-	0,  // [0:31] is the sub-list for field type_name
+	11, // 18: smsgateway.v1.DevicePolicy.availability:type_name -> smsgateway.v1.Availability
+	13, // 19: smsgateway.v1.DevicePolicy.accept:type_name -> smsgateway.v1.AcceptRules
+	14, // 20: smsgateway.v1.DevicePolicy.sims:type_name -> smsgateway.v1.SimPolicy
+	25, // 21: smsgateway.v1.DevicePolicy.updated_at:type_name -> google.protobuf.Timestamp
+	10, // 22: smsgateway.v1.DevicePolicy.limits:type_name -> smsgateway.v1.SendLimits
+	12, // 23: smsgateway.v1.Availability.windows:type_name -> smsgateway.v1.TimeWindow
+	13, // 24: smsgateway.v1.SimPolicy.accept:type_name -> smsgateway.v1.AcceptRules
+	11, // 25: smsgateway.v1.SimPolicy.availability:type_name -> smsgateway.v1.Availability
+	10, // 26: smsgateway.v1.SimPolicy.limits:type_name -> smsgateway.v1.SendLimits
+	17, // 27: smsgateway.v1.Heartbeat.health:type_name -> smsgateway.v1.DeviceHealth
+	18, // 28: smsgateway.v1.DeviceHealth.sims:type_name -> smsgateway.v1.SimHealth
+	0,  // 29: smsgateway.v1.JobResult.status:type_name -> smsgateway.v1.JobStatus
+	25, // 30: smsgateway.v1.JobResult.completed_at:type_name -> google.protobuf.Timestamp
+	9,  // 31: smsgateway.v1.RegisterAck.policy:type_name -> smsgateway.v1.DevicePolicy
+	25, // 32: smsgateway.v1.SendSmsJob.expires_at:type_name -> google.protobuf.Timestamp
+	1,  // 33: smsgateway.v1.DeviceGateway.Enroll:input_type -> smsgateway.v1.EnrollRequest
+	5,  // 34: smsgateway.v1.DeviceGateway.Connect:input_type -> smsgateway.v1.DeviceMessage
+	2,  // 35: smsgateway.v1.DeviceGateway.Enroll:output_type -> smsgateway.v1.EnrollResponse
+	6,  // 36: smsgateway.v1.DeviceGateway.Connect:output_type -> smsgateway.v1.ServerMessage
+	35, // [35:37] is the sub-list for method output_type
+	33, // [33:35] is the sub-list for method input_type
+	33, // [33:33] is the sub-list for extension type_name
+	33, // [33:33] is the sub-list for extension extendee
+	0,  // [0:33] is the sub-list for field type_name
 }
 
 func init() { file_smsgateway_v1_device_proto_init() }
@@ -2237,7 +2323,7 @@ func file_smsgateway_v1_device_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_smsgateway_v1_device_proto_rawDesc), len(file_smsgateway_v1_device_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   23,
+			NumMessages:   24,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
