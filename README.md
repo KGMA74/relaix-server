@@ -86,7 +86,7 @@ proto change, and bump the submodule pointer in the monorepo.
 
 ## Author
 
-Built by **[KGMA74](https://github.com/KGMA74)** — [ryukfearless.digital](https://ryukfearless.digital).
+Built by **[KGMA74](https://github.com/KGMA74)** — [kgmadev.com](https://kgmadev.com).
 
 ## License
 
