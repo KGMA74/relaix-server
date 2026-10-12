@@ -34,7 +34,7 @@ type Hub interface {
 
 // Enroller mints enrollment tokens.
 type Enroller interface {
-	MintEnrollmentToken(ctx context.Context) (*devices.MintedToken, error)
+	MintEnrollmentToken(ctx context.Context, accountID uuid.UUID) (*devices.MintedToken, error)
 }
 
 // Options configures the API.

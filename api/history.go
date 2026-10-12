@@ -240,13 +240,13 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	since := s.opts.Now().Add(-window)
 
-	counts, err := s.store.Jobs().CountByStatus(ctx, since)
+	counts, err := s.store.Jobs().CountByStatus(ctx, store.AllAccounts(), since)
 	if err != nil {
 		s.opts.Logger.Error("could not count jobs", "err", err)
 		writeError(w, http.StatusInternalServerError, "internal", "could not compute stats")
 		return
 	}
-	stored, err := s.store.Devices().List(ctx)
+	stored, err := s.store.Devices().List(ctx, store.AllAccounts())
 	if err != nil {
 		s.opts.Logger.Error("could not list devices", "err", err)
 		writeError(w, http.StatusInternalServerError, "internal", "could not compute stats")

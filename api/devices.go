@@ -224,7 +224,7 @@ func toSimResponses(info []store.SimInfo, health []store.SimHealth) []simRespons
 func (s *Server) handleListDevices(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	stored, err := s.store.Devices().List(ctx)
+	stored, err := s.store.Devices().List(ctx, store.AllAccounts())
 	if err != nil {
 		s.opts.Logger.Error("could not list devices", "err", err)
 		writeError(w, http.StatusInternalServerError, "internal", "could not list devices")
@@ -355,7 +355,7 @@ func (s *Server) handleEnrollToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	minted, err := s.enroller.MintEnrollmentToken(r.Context())
+	minted, err := s.enroller.MintEnrollmentToken(r.Context(), uuid.Nil)
 	if err != nil {
 		s.opts.Logger.Error("could not mint enrollment token", "err", err)
 		writeError(w, http.StatusInternalServerError, "internal", "could not mint token")

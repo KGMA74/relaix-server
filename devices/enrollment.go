@@ -17,6 +17,8 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/KGMA74/relaix-server/store"
 	"github.com/KGMA74/relaix-server/token"
 )
@@ -92,15 +94,16 @@ type MintedToken struct {
 	Record *store.EnrollmentToken
 }
 
-// MintEnrollmentToken creates a single-use token.
-func (s *Service) MintEnrollmentToken(ctx context.Context) (*MintedToken, error) {
+// MintEnrollmentToken creates a single-use token. The device that redeems it
+// will belong to accountID (zero: the default account).
+func (s *Service) MintEnrollmentToken(ctx context.Context, accountID uuid.UUID) (*MintedToken, error) {
 	plaintext, err := token.Generate()
 	if err != nil {
 		return nil, err
 	}
 
 	expires := s.opts.Now().Add(s.opts.TokenTTL)
-	rec, err := s.store.Enrollments().Create(ctx, s.hasher.Hash(plaintext), expires)
+	rec, err := s.store.Enrollments().Create(ctx, accountID, s.hasher.Hash(plaintext), expires)
 	if err != nil {
 		return nil, fmt.Errorf("devices: mint enrollment token: %w", err)
 	}
@@ -175,7 +178,16 @@ func (s *Service) Enroll(ctx context.Context, enrollmentToken string, info *stor
 		reenrolled bool
 	)
 	err = s.store.WithTx(ctx, func(tx store.Store) error {
+		// The token says which account the phone joins. Read first, not
+		// consumed: Consume below still decides whether it is usable, in
+		// this same transaction.
+		tok, err := tx.Enrollments().Lookup(ctx, tokenHash)
+		if err != nil {
+			return err
+		}
+
 		candidate := *info
+		candidate.AccountID = tok.AccountID
 		candidate.Enabled = true
 		candidate.CreatedAt = now
 		candidate.HardwareHash = hardwareHash

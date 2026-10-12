@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/KGMA74/relaix-server/store"
 	"github.com/KGMA74/relaix-server/store/storetest"
 	"github.com/KGMA74/relaix-server/token"
@@ -33,7 +35,7 @@ func TestMintReturnsPlaintextAndStoresOnlyTheHash(t *testing.T) {
 	st := storetest.New()
 	s := newService(t, st, nil)
 
-	minted, err := s.MintEnrollmentToken(context.Background())
+	minted, err := s.MintEnrollmentToken(context.Background(), uuid.Nil)
 	if err != nil {
 		t.Fatalf("MintEnrollmentToken: %v", err)
 	}
@@ -61,7 +63,7 @@ func TestMintProducesDistinctTokens(t *testing.T) {
 
 	seen := make(map[string]bool)
 	for range 50 {
-		m, err := s.MintEnrollmentToken(context.Background())
+		m, err := s.MintEnrollmentToken(context.Background(), uuid.Nil)
 		if err != nil {
 			t.Fatalf("MintEnrollmentToken: %v", err)
 		}
@@ -77,7 +79,7 @@ func TestEnrollCreatesDeviceAndReturnsToken(t *testing.T) {
 	s := newService(t, st, nil)
 	ctx := context.Background()
 
-	minted, err := s.MintEnrollmentToken(ctx)
+	minted, err := s.MintEnrollmentToken(ctx, uuid.Nil)
 	if err != nil {
 		t.Fatalf("mint: %v", err)
 	}
@@ -117,7 +119,7 @@ func TestTokenCannotBeUsedTwice(t *testing.T) {
 	s := newService(t, st, nil)
 	ctx := context.Background()
 
-	minted, err := s.MintEnrollmentToken(ctx)
+	minted, err := s.MintEnrollmentToken(ctx, uuid.Nil)
 	if err != nil {
 		t.Fatalf("mint: %v", err)
 	}
@@ -131,7 +133,7 @@ func TestTokenCannotBeUsedTwice(t *testing.T) {
 		t.Fatalf("second Enroll = %v, want ErrTokenUsed", err)
 	}
 
-	devices, err := st.Devices().List(ctx)
+	devices, err := st.Devices().List(ctx, store.AllAccounts())
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -147,7 +149,7 @@ func TestConcurrentEnrollmentYieldsOneDevice(t *testing.T) {
 	s := newService(t, st, nil)
 	ctx := context.Background()
 
-	minted, err := s.MintEnrollmentToken(ctx)
+	minted, err := s.MintEnrollmentToken(ctx, uuid.Nil)
 	if err != nil {
 		t.Fatalf("mint: %v", err)
 	}
@@ -184,7 +186,7 @@ func TestConcurrentEnrollmentYieldsOneDevice(t *testing.T) {
 		}
 	}
 
-	devices, err := st.Devices().List(ctx)
+	devices, err := st.Devices().List(ctx, store.AllAccounts())
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -199,7 +201,7 @@ func TestExpiredTokenIsRejected(t *testing.T) {
 	s := newService(t, st, func() time.Time { return now })
 	ctx := context.Background()
 
-	minted, err := s.MintEnrollmentToken(ctx)
+	minted, err := s.MintEnrollmentToken(ctx, uuid.Nil)
 	if err != nil {
 		t.Fatalf("mint: %v", err)
 	}
@@ -216,7 +218,7 @@ func TestExpiredTokenIsRejected(t *testing.T) {
 		t.Error("an expired token was reported as already used")
 	}
 
-	devices, err := st.Devices().List(ctx)
+	devices, err := st.Devices().List(ctx, store.AllAccounts())
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -250,7 +252,7 @@ func TestConsumptionRecordsWhichDeviceClaimedTheToken(t *testing.T) {
 	s := newService(t, st, nil)
 	ctx := context.Background()
 
-	minted, err := s.MintEnrollmentToken(ctx)
+	minted, err := s.MintEnrollmentToken(ctx, uuid.Nil)
 	if err != nil {
 		t.Fatalf("mint: %v", err)
 	}
@@ -289,7 +291,7 @@ func TestEnrollSameHardwareTakesBackTheDevice(t *testing.T) {
 		t.Errorf("label = %q, want the fresh description", second.Device.Label)
 	}
 
-	all, err := st.Devices().List(ctx)
+	all, err := st.Devices().List(ctx, store.AllAccounts())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -325,7 +327,7 @@ func TestEnrollDifferentOrMissingHardwareMakesNewDevices(t *testing.T) {
 	if len(ids) != 4 {
 		t.Errorf("got %d distinct devices, want 4", len(ids))
 	}
-	all, _ := st.Devices().List(ctx)
+	all, _ := st.Devices().List(ctx, store.AllAccounts())
 	if len(all) != 4 {
 		t.Errorf("fleet has %d devices, want 4", len(all))
 	}
@@ -355,7 +357,7 @@ func TestHardwareHashIsKeyedAndNeverTheID(t *testing.T) {
 
 func mustEnroll(t *testing.T, s *Service, info *store.Device, hardwareID string) *EnrolledDevice {
 	t.Helper()
-	minted, err := s.MintEnrollmentToken(context.Background())
+	minted, err := s.MintEnrollmentToken(context.Background(), uuid.Nil)
 	if err != nil {
 		t.Fatalf("mint: %v", err)
 	}

@@ -737,13 +737,24 @@ func TestCappedFleetMakesJobsWaitNotFail(t *testing.T) {
 	h := newFakeHub(dev)
 	s := newScheduler(t, st, h, Options{})
 
-	st.SeedJob(&store.Job{Recipient: "+22670000000", Body: "a", Mode: store.ModeQueued})
+	first := st.SeedJob(&store.Job{Recipient: "+22670000000", Body: "a", Mode: store.ModeQueued})
 	second := st.SeedJob(&store.Job{Recipient: "+22670000000", Body: "b", Mode: store.ModeQueued})
 	if err := s.Tick(context.Background()); err != nil {
 		t.Fatalf("Tick: %v", err)
 	}
-	if got := st.JobByID(second.ID); got.Status != store.JobPending {
-		t.Errorf("job beyond the cap is %q (%s), want pending", got.Status, got.ErrorCode)
+	// Which one goes first is not the point (both are created in the same
+	// instant on some clocks): one is placed, the other waits, none fails.
+	pending := 0
+	for _, j := range []*store.Job{first, second} {
+		switch got := st.JobByID(j.ID); got.Status {
+		case store.JobPending:
+			pending++
+		case store.JobFailed:
+			t.Errorf("a job beyond the cap failed (%s); want it to wait", got.ErrorCode)
+		}
+	}
+	if pending != 1 {
+		t.Errorf("%d jobs pending, want 1 waiting beyond the cap", pending)
 	}
 }
 

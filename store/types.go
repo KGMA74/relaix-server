@@ -36,6 +36,47 @@ type BucketCount struct {
 	Count  int
 }
 
+// DefaultAccountID is the account seeded by migration 00009. Everything that
+// existed before accounts belongs to it, and a deployment that never creates
+// another — one operator, one shared API key — works on it alone.
+var DefaultAccountID = uuid.MustParse("00000000-0000-0000-0000-000000000001")
+
+// Account owns devices, jobs and enrollment tokens. Deliberately minimal: a
+// scope owner. What else an account carries — people, keys, plans — belongs
+// to whatever embeds the gateway, keyed on this id.
+type Account struct {
+	ID        uuid.UUID
+	Name      string
+	CreatedAt time.Time
+}
+
+// Scope narrows a listing to one account, or leaves it across all of them.
+// The zero Scope is all accounts: the view of whoever runs the gateway.
+type Scope struct {
+	AccountID *uuid.UUID
+}
+
+// AllAccounts is the unscoped view.
+func AllAccounts() Scope { return Scope{} }
+
+// OnlyAccount scopes to one account.
+func OnlyAccount(id uuid.UUID) Scope { return Scope{AccountID: &id} }
+
+// Includes reports whether a row owned by account belongs to the scope.
+func (s Scope) Includes(account uuid.UUID) bool {
+	return s.AccountID == nil || *s.AccountID == account
+}
+
+// AccountOrDefault maps the zero id to the default account, so callers
+// written before accounts existed — and tests — keep creating rows that
+// belong somewhere.
+func AccountOrDefault(id uuid.UUID) uuid.UUID {
+	if id == uuid.Nil {
+		return DefaultAccountID
+	}
+	return id
+}
+
 // JobStatus is the lifecycle state of a job. The values match the CHECK
 // constraint on jobs.status; they are a Go string type rather than an int so
 // that a value read from the database is self-describing in a log line.
@@ -146,7 +187,9 @@ type SimInfo struct {
 
 // Device is an enrolled phone.
 type Device struct {
-	ID          uuid.UUID
+	ID uuid.UUID
+	// AccountID owns the device. Zero on Create means the default account.
+	AccountID   uuid.UUID
 	Label       string
 	PhoneNumber string
 	// Enabled is the operator kill switch. A disabled device is refused at
@@ -193,7 +236,9 @@ type Device struct {
 
 // Job is one SMS request.
 type Job struct {
-	ID        uuid.UUID
+	ID uuid.UUID
+	// AccountID owns the job. Zero on Create means the default account.
+	AccountID uuid.UUID
 	Recipient string
 	Body      string
 	Mode      JobMode
@@ -254,6 +299,8 @@ func (j *Job) Expired(now time.Time) bool {
 // JobFilter narrows JobStore.List. Every field is optional and they combine
 // with AND; the zero value matches every job.
 type JobFilter struct {
+	// AccountID restricts to one account's jobs. Nil: all accounts.
+	AccountID *uuid.UUID
 	// Statuses matches any of the listed states. Empty means all.
 	Statuses []JobStatus
 	// DeviceID matches a job the device was asked for or was given. Both,
@@ -310,7 +357,9 @@ func (c *CallbackState) Due(now time.Time) bool {
 
 // EnrollmentToken is a single-use credential that trades for a device token.
 type EnrollmentToken struct {
-	ID        uuid.UUID
+	ID uuid.UUID
+	// AccountID is the account the enrolling device will belong to.
+	AccountID uuid.UUID
 	ExpiresAt time.Time
 	// ConsumedAt and DeviceID are set together when the token is redeemed, and
 	// are both nil before that.

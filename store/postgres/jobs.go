@@ -16,7 +16,7 @@ type jobStore struct{ q querier }
 const jobColumns = `
 	id, recipient, body, mode, priority,
 	scheduled_at, expires_at, requested_device_id, assigned_device_id, subscription_id,
-	assigned_subscription_id,
+	assigned_subscription_id, account_id,
 	status, error_code, error_message, parts_sent, attempts,
 	callback_url, callback_attempts, callback_next_at, callback_delivered_at, callback_last_error,
 	created_at, updated_at, assigned_at, completed_at`
@@ -25,14 +25,16 @@ func (j jobStore) Create(ctx context.Context, in *store.Job) (*store.Job, error)
 	const q = `
 		INSERT INTO jobs (
 			recipient, body, mode, priority, scheduled_at, expires_at,
-			requested_device_id, subscription_id, callback_url, callback_next_at
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+			requested_device_id, subscription_id, callback_url, callback_next_at,
+			account_id
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
 		RETURNING ` + jobColumns
 
 	row := j.q.QueryRow(ctx, q,
 		in.Recipient, in.Body, string(in.Mode), in.Priority,
 		in.ScheduledAt, in.ExpiresAt, in.RequestedDeviceID, in.SubscriptionID,
 		in.Callback.URL, in.Callback.NextAttemptAt,
+		store.AccountOrDefault(in.AccountID),
 	)
 	job, err := scanJob(row)
 	return job, translate(err)
@@ -224,6 +226,10 @@ func (j jobStore) List(ctx context.Context, f store.JobFilter) ([]*store.Job, er
 		return "$" + strconv.Itoa(len(args))
 	}
 
+	// First, so the planner can lead with jobs_account_created_idx.
+	if f.AccountID != nil {
+		where = append(where, "account_id = "+arg(*f.AccountID))
+	}
 	if len(f.Statuses) > 0 {
 		statuses := make([]string, len(f.Statuses))
 		for i, s := range f.Statuses {
@@ -264,15 +270,15 @@ func (j jobStore) List(ctx context.Context, f store.JobFilter) ([]*store.Job, er
 
 // CountByBucket walks jobs_created_idx over the window; date_bin aligns the
 // buckets on from, so the caller's bucket boundaries are the database's.
-func (j jobStore) CountByBucket(ctx context.Context, from time.Time, bucket time.Duration) ([]store.BucketCount, error) {
+func (j jobStore) CountByBucket(ctx context.Context, scope store.Scope, from time.Time, bucket time.Duration) ([]store.BucketCount, error) {
 	const q = `
 		SELECT date_bin(make_interval(secs => $2), created_at, $1) AS b, status, count(*)
 		FROM jobs
-		WHERE created_at >= $1
+		WHERE created_at >= $1 AND ($3::uuid IS NULL OR account_id = $3)
 		GROUP BY b, status
 		ORDER BY b`
 
-	rows, err := j.q.Query(ctx, q, from, bucket.Seconds())
+	rows, err := j.q.Query(ctx, q, from, bucket.Seconds(), scope.AccountID)
 	if err != nil {
 		return nil, translate(err)
 	}
@@ -293,9 +299,11 @@ func (j jobStore) CountByBucket(ctx context.Context, from time.Time, bucket time
 	return out, translate(rows.Err())
 }
 
-func (j jobStore) CountByStatus(ctx context.Context, since time.Time) (map[store.JobStatus]int, error) {
+func (j jobStore) CountByStatus(ctx context.Context, scope store.Scope, since time.Time) (map[store.JobStatus]int, error) {
 	rows, err := j.q.Query(ctx,
-		`SELECT status, count(*) FROM jobs WHERE created_at >= $1 GROUP BY status`, since)
+		`SELECT status, count(*) FROM jobs
+		WHERE created_at >= $1 AND ($2::uuid IS NULL OR account_id = $2)
+		GROUP BY status`, since, scope.AccountID)
 	if err != nil {
 		return nil, translate(err)
 	}
@@ -427,7 +435,7 @@ func scanJob(row scanner) (*store.Job, error) {
 	err := row.Scan(
 		&j.ID, &j.Recipient, &j.Body, &mode, &j.Priority,
 		&j.ScheduledAt, &j.ExpiresAt, &j.RequestedDeviceID, &j.AssignedDeviceID, &j.SubscriptionID,
-		&j.AssignedSubscriptionID,
+		&j.AssignedSubscriptionID, &j.AccountID,
 		&status, &j.ErrorCode, &j.ErrorMessage, &j.PartsSent, &j.Attempts,
 		&j.Callback.URL, &j.Callback.Attempts, &j.Callback.NextAttemptAt,
 		&j.Callback.DeliveredAt, &j.Callback.LastError,

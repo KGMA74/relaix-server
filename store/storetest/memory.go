@@ -43,6 +43,7 @@ import (
 type Store struct {
 	mu sync.Mutex
 
+	accounts    map[uuid.UUID]*store.Account
 	devices     map[uuid.UUID]*store.Device
 	tokenToID   map[string]uuid.UUID // device token hash -> device id
 	jobs        map[uuid.UUID]*store.Job
@@ -68,7 +69,11 @@ type Store struct {
 
 // New returns an empty Store.
 func New() *Store {
+	// Seeded like migration 00009 seeds Postgres.
 	return &Store{
+		accounts: map[uuid.UUID]*store.Account{
+			store.DefaultAccountID: {ID: store.DefaultAccountID, Name: "default", CreatedAt: time.Unix(0, 0).UTC()},
+		},
 		devices:     make(map[uuid.UUID]*store.Device),
 		tokenToID:   make(map[string]uuid.UUID),
 		jobs:        make(map[uuid.UUID]*store.Job),
@@ -98,6 +103,9 @@ func (s *Store) takeFailure() error {
 	s.failNext = nil
 	return err
 }
+
+// Accounts implements store.Store.
+func (s *Store) Accounts() store.AccountStore { return accountStore{s} }
 
 // Devices implements store.Store.
 func (s *Store) Devices() store.DeviceStore { return deviceStore{s} }
@@ -143,6 +151,7 @@ func (s *Store) WithTx(ctx context.Context, fn func(store.Store) error) error {
 
 // state is a deep copy of everything the store holds.
 type state struct {
+	accounts    map[uuid.UUID]*store.Account
 	devices     map[uuid.UUID]*store.Device
 	tokenToID   map[string]uuid.UUID
 	jobs        map[uuid.UUID]*store.Job
@@ -156,12 +165,17 @@ type state struct {
 // transaction's edits survive.
 func (s *Store) snapshot() state {
 	cp := state{
+		accounts:    make(map[uuid.UUID]*store.Account, len(s.accounts)),
 		devices:     make(map[uuid.UUID]*store.Device, len(s.devices)),
 		tokenToID:   make(map[string]uuid.UUID, len(s.tokenToID)),
 		jobs:        make(map[uuid.UUID]*store.Job, len(s.jobs)),
 		enrollments: make(map[string]*store.EnrollmentToken, len(s.enrollments)),
 		events:      make([]*store.JobEvent, 0, len(s.events)),
 		nextEventID: s.nextEventID,
+	}
+	for k, v := range s.accounts {
+		c := *v
+		cp.accounts[k] = &c
 	}
 	for k, v := range s.devices {
 		cp.devices[k] = copyDevice(v)
@@ -181,6 +195,7 @@ func (s *Store) snapshot() state {
 }
 
 func (s *Store) restore(st state) {
+	s.accounts = st.accounts
 	s.devices = st.devices
 	s.tokenToID = st.tokenToID
 	s.jobs = st.jobs
@@ -201,6 +216,7 @@ func (t txStore) WithTx(context.Context, func(store.Store) error) error {
 var (
 	_ store.Store           = (*Store)(nil)
 	_ store.Store           = txStore{}
+	_ store.AccountStore    = accountStore{}
 	_ store.DeviceStore     = deviceStore{}
 	_ store.JobStore        = jobStore{}
 	_ store.EnrollmentStore = enrollmentStore{}
@@ -240,6 +256,7 @@ func (d deviceStore) Create(ctx context.Context, in *store.Device, tokenHash str
 	cp.UpdatedAt = cp.CreatedAt
 	cp.Sims = append([]store.SimInfo(nil), in.Sims...)
 	cp.Health = copyHealth(in.Health)
+	cp.AccountID = store.AccountOrDefault(in.AccountID)
 	// A newly enrolled device is enabled, whatever the caller passed. The
 	// column is NOT NULL DEFAULT true and the insert sets it explicitly, so the
 	// fake must not let a zero-valued struct create a disabled device.
@@ -268,11 +285,13 @@ func (d deviceStore) GetByTokenHash(ctx context.Context, tokenHash string) (*sto
 	return copyDevice(d.s.devices[id]), nil
 }
 
-func (d deviceStore) List(ctx context.Context) ([]*store.Device, error) {
+func (d deviceStore) List(ctx context.Context, scope store.Scope) ([]*store.Device, error) {
 	defer d.s.lock()()
 	out := make([]*store.Device, 0, len(d.s.devices))
 	for _, dev := range d.s.devices {
-		out = append(out, copyDevice(dev))
+		if scope.Includes(dev.AccountID) {
+			out = append(out, copyDevice(dev))
+		}
 	}
 	slices.SortFunc(out, func(a, b *store.Device) int {
 		return b.CreatedAt.Compare(a.CreatedAt) // newest first
@@ -314,6 +333,7 @@ func (d deviceStore) Rekey(ctx context.Context, id uuid.UUID, in *store.Device, 
 	}
 	d.s.tokenToID[tokenHash] = id
 
+	dev.AccountID = store.AccountOrDefault(in.AccountID)
 	dev.Enabled = true
 	dev.Label = in.Label
 	dev.PhoneNumber = in.PhoneNumber
@@ -453,6 +473,7 @@ func (j jobStore) Create(ctx context.Context, in *store.Job) (*store.Job, error)
 	if cp.Status == "" {
 		cp.Status = store.JobPending
 	}
+	cp.AccountID = store.AccountOrDefault(cp.AccountID)
 	if cp.CreatedAt.IsZero() {
 		cp.CreatedAt = time.Now()
 		if !cp.CreatedAt.After(j.s.lastJobAt) {
@@ -698,6 +719,9 @@ func (j jobStore) List(ctx context.Context, f store.JobFilter) ([]*store.Job, er
 }
 
 func matchesFilter(job *store.Job, f store.JobFilter) bool {
+	if f.AccountID != nil && job.AccountID != *f.AccountID {
+		return false
+	}
 	if len(f.Statuses) > 0 && !slices.Contains(f.Statuses, job.Status) {
 		return false
 	}
@@ -731,7 +755,7 @@ func compareJobOrder(aAt time.Time, aID uuid.UUID, bAt time.Time, bID uuid.UUID)
 	return bytes.Compare(aID[:], bID[:])
 }
 
-func (j jobStore) CountByBucket(ctx context.Context, from time.Time, bucket time.Duration) ([]store.BucketCount, error) {
+func (j jobStore) CountByBucket(ctx context.Context, scope store.Scope, from time.Time, bucket time.Duration) ([]store.BucketCount, error) {
 	defer j.s.lock()()
 	if err := j.s.takeFailure(); err != nil {
 		return nil, err
@@ -742,7 +766,7 @@ func (j jobStore) CountByBucket(ctx context.Context, from time.Time, bucket time
 	}
 	counts := map[key]int{}
 	for _, job := range j.s.jobs {
-		if job.CreatedAt.Before(from) {
+		if job.CreatedAt.Before(from) || !scope.Includes(job.AccountID) {
 			continue
 		}
 		n := job.CreatedAt.Sub(from) / bucket
@@ -756,14 +780,14 @@ func (j jobStore) CountByBucket(ctx context.Context, from time.Time, bucket time
 	return out, nil
 }
 
-func (j jobStore) CountByStatus(ctx context.Context, since time.Time) (map[store.JobStatus]int, error) {
+func (j jobStore) CountByStatus(ctx context.Context, scope store.Scope, since time.Time) (map[store.JobStatus]int, error) {
 	defer j.s.lock()()
 	if err := j.s.takeFailure(); err != nil {
 		return nil, err
 	}
 	out := make(map[store.JobStatus]int)
 	for _, job := range j.s.jobs {
-		if !job.CreatedAt.Before(since) {
+		if !job.CreatedAt.Before(since) && scope.Includes(job.AccountID) {
 			out[job.Status]++
 		}
 	}
@@ -845,7 +869,7 @@ func (j jobStore) ScheduleCallbackRetry(ctx context.Context, id uuid.UUID, nextA
 
 type enrollmentStore struct{ s *Store }
 
-func (e enrollmentStore) Create(ctx context.Context, tokenHash string, expiresAt time.Time) (*store.EnrollmentToken, error) {
+func (e enrollmentStore) Create(ctx context.Context, accountID uuid.UUID, tokenHash string, expiresAt time.Time) (*store.EnrollmentToken, error) {
 	defer e.s.lock()()
 	if err := e.s.takeFailure(); err != nil {
 		return nil, err
@@ -855,10 +879,20 @@ func (e enrollmentStore) Create(ctx context.Context, tokenHash string, expiresAt
 	}
 	t := &store.EnrollmentToken{
 		ID:        uuid.New(),
+		AccountID: store.AccountOrDefault(accountID),
 		ExpiresAt: expiresAt,
 		CreatedAt: time.Now(),
 	}
 	e.s.enrollments[tokenHash] = t
+	return copyToken(t), nil
+}
+
+func (e enrollmentStore) Lookup(ctx context.Context, tokenHash string) (*store.EnrollmentToken, error) {
+	defer e.s.lock()()
+	t, ok := e.s.enrollments[tokenHash]
+	if !ok {
+		return nil, store.ErrNotFound
+	}
 	return copyToken(t), nil
 }
 
@@ -944,6 +978,7 @@ func (s *Store) SeedJob(j *store.Job) *store.Job {
 	if cp.ID == uuid.Nil {
 		cp.ID = uuid.New()
 	}
+	cp.AccountID = store.AccountOrDefault(cp.AccountID)
 	if cp.Status == "" {
 		cp.Status = store.JobPending
 	}
@@ -962,6 +997,7 @@ func (s *Store) SeedDevice(d *store.Device) *store.Device {
 	if cp.ID == uuid.Nil {
 		cp.ID = uuid.New()
 	}
+	cp.AccountID = store.AccountOrDefault(cp.AccountID)
 	cp.Sims = append([]store.SimInfo(nil), d.Sims...)
 	cp.Health = copyHealth(d.Health)
 	s.devices[cp.ID] = &cp
@@ -1073,3 +1109,42 @@ func copyUUID(u *uuid.UUID) *uuid.UUID {
 
 // Ping always succeeds: an in-memory store has nothing to be unreachable.
 func (s *Store) Ping(context.Context) error { return nil }
+
+type accountStore struct{ s *Store }
+
+func (a accountStore) Create(ctx context.Context, name string) (*store.Account, error) {
+	defer a.s.lock()()
+	if err := a.s.takeFailure(); err != nil {
+		return nil, err
+	}
+	acc := &store.Account{ID: uuid.New(), Name: name, CreatedAt: time.Now().UTC()}
+	a.s.accounts[acc.ID] = acc
+	c := *acc
+	return &c, nil
+}
+
+func (a accountStore) Get(ctx context.Context, id uuid.UUID) (*store.Account, error) {
+	defer a.s.lock()()
+	acc, ok := a.s.accounts[id]
+	if !ok {
+		return nil, store.ErrNotFound
+	}
+	c := *acc
+	return &c, nil
+}
+
+func (a accountStore) List(ctx context.Context) ([]*store.Account, error) {
+	defer a.s.lock()()
+	out := make([]*store.Account, 0, len(a.s.accounts))
+	for _, acc := range a.s.accounts {
+		c := *acc
+		out = append(out, &c)
+	}
+	slices.SortFunc(out, func(x, y *store.Account) int {
+		if c := x.CreatedAt.Compare(y.CreatedAt); c != 0 {
+			return c
+		}
+		return strings.Compare(x.ID.String(), y.ID.String())
+	})
+	return out, nil
+}

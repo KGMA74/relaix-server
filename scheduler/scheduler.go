@@ -254,7 +254,7 @@ func (s *Scheduler) Tick(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	all, err := s.store.Devices().List(ctx)
+	all, err := s.store.Devices().List(ctx, store.AllAccounts())
 	if err != nil {
 		return err
 	}

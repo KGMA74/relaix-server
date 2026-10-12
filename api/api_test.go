@@ -236,7 +236,7 @@ func TestImmediateSendFailsFastWithNoReadyDevice(t *testing.T) {
 	}
 
 	// And nothing was persisted: failing fast means no job to chase later.
-	devices, _ := h.store.Devices().List(context.Background())
+	devices, _ := h.store.Devices().List(context.Background(), store.AllAccounts())
 	_ = devices
 	if events := h.store.AllEvents(); len(events) != 0 {
 		t.Errorf("recorded %d events for a rejected send, want 0", len(events))

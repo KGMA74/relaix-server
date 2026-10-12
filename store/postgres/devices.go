@@ -18,7 +18,7 @@ type deviceStore struct{ q querier }
 // column added to the table cannot be picked up by one query and missed by
 // another.
 const deviceColumns = `
-	id, label, phone_number, enabled,
+	id, account_id, label, phone_number, enabled,
 	manufacturer, model, os_version, agent_version, carrier, sim_info, hardware_hash,
 	time_zone, policy,
 	battery_level, is_charging, signal_strength, network_type,
@@ -111,8 +111,8 @@ func (d deviceStore) Create(ctx context.Context, in *store.Device, tokenHash str
 		INSERT INTO devices (
 			label, phone_number, token_hash, enabled,
 			manufacturer, model, os_version, agent_version, carrier, sim_info,
-			hardware_hash, time_zone
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NULLIF($11, ''),$12)
+			hardware_hash, time_zone, account_id
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NULLIF($11, ''),$12,$13)
 		RETURNING ` + deviceColumns
 
 	simInfo, err := marshalSimInfo(in.Sims)
@@ -122,7 +122,7 @@ func (d deviceStore) Create(ctx context.Context, in *store.Device, tokenHash str
 	row := d.q.QueryRow(ctx, q,
 		in.Label, in.PhoneNumber, tokenHash, true,
 		in.Manufacturer, in.Model, in.OSVersion, in.AgentVersion, in.Carrier, simInfo,
-		in.HardwareHash, in.TimeZone,
+		in.HardwareHash, in.TimeZone, store.AccountOrDefault(in.AccountID),
 	)
 	dev, err := scanDevice(row)
 	return dev, translate(err)
@@ -147,7 +147,7 @@ func (d deviceStore) Rekey(ctx context.Context, id uuid.UUID, in *store.Device, 
 			token_hash = $2, enabled = true,
 			label = $3, phone_number = $4, manufacturer = $5, model = $6,
 			os_version = $7, agent_version = $8, carrier = $9, sim_info = $10,
-			time_zone = $11, updated_at = now()
+			time_zone = $11, account_id = $12, updated_at = now()
 		WHERE id = $1
 		RETURNING ` + deviceColumns
 
@@ -155,9 +155,12 @@ func (d deviceStore) Rekey(ctx context.Context, id uuid.UUID, in *store.Device, 
 	if err != nil {
 		return nil, err
 	}
+	// The account moves with the enrollment: a phone re-enrolled with
+	// another account's code now belongs to that account.
 	dev, err := scanDevice(d.q.QueryRow(ctx, q, id, tokenHash,
 		in.Label, in.PhoneNumber, in.Manufacturer, in.Model,
 		in.OSVersion, in.AgentVersion, in.Carrier, simInfo, in.TimeZone,
+		store.AccountOrDefault(in.AccountID),
 	))
 	return dev, translate(err)
 }
@@ -177,9 +180,11 @@ func (d deviceStore) GetByTokenHash(ctx context.Context, tokenHash string) (*sto
 }
 
 // List is unpaginated: the fleet is one row per physical phone.
-func (d deviceStore) List(ctx context.Context) ([]*store.Device, error) {
+func (d deviceStore) List(ctx context.Context, scope store.Scope) ([]*store.Device, error) {
 	rows, err := d.q.Query(ctx,
-		`SELECT `+deviceColumns+` FROM devices ORDER BY created_at DESC`)
+		`SELECT `+deviceColumns+` FROM devices
+		WHERE $1::uuid IS NULL OR account_id = $1
+		ORDER BY created_at DESC`, scope.AccountID)
 	if err != nil {
 		return nil, translate(err)
 	}
@@ -354,7 +359,7 @@ func scanDevice(row scanner) (*store.Device, error) {
 	)
 
 	err := row.Scan(
-		&d.ID, &d.Label, &d.PhoneNumber, &d.Enabled,
+		&d.ID, &d.AccountID, &d.Label, &d.PhoneNumber, &d.Enabled,
 		&d.Manufacturer, &d.Model, &d.OSVersion, &d.AgentVersion, &d.Carrier, &simInfo, &hardware,
 		&d.TimeZone, &policyDoc,
 		&battery, &charging, &signal, &network,

@@ -65,6 +65,9 @@ func (s *Store) Close() {
 // Devices implements store.Store.
 func (s *Store) Devices() store.DeviceStore { return deviceStore{s.q} }
 
+// Accounts implements store.Store.
+func (s *Store) Accounts() store.AccountStore { return accountStore{s.q} }
+
 // Jobs implements store.Store.
 func (s *Store) Jobs() store.JobStore { return jobStore{s.q} }
 
@@ -106,6 +109,7 @@ func (s *Store) WithTx(ctx context.Context, fn func(store.Store) error) error {
 // Compile-time proof that this implements the boundary it stands behind.
 var (
 	_ store.Store           = (*Store)(nil)
+	_ store.AccountStore    = accountStore{}
 	_ store.DeviceStore     = deviceStore{}
 	_ store.JobStore        = jobStore{}
 	_ store.EnrollmentStore = enrollmentStore{}

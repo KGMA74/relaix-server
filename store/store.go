@@ -32,6 +32,7 @@ var (
 // need — a scheduler wants Jobs and Devices, the enrollment service wants
 // Enrollments — but transactions need the whole set, so this composes them.
 type Store interface {
+	Accounts() AccountStore
 	Devices() DeviceStore
 	Jobs() JobStore
 	Enrollments() EnrollmentStore
@@ -74,9 +75,9 @@ type DeviceStore interface {
 	// updated device, or ErrNotFound.
 	Rekey(ctx context.Context, id uuid.UUID, d *Device, tokenHash string) (*Device, error)
 
-	// List returns all devices, newest first. The fleet is small by nature
-	// (one row per physical phone), so this is deliberately unpaginated.
-	List(ctx context.Context) ([]*Device, error)
+	// List returns the scope's devices, newest first. The fleet is small by
+	// nature (one row per physical phone), so this is deliberately unpaginated.
+	List(ctx context.Context, scope Scope) ([]*Device, error)
 
 	// UpdateInfo refreshes the descriptive fields from a Register, so the
 	// server's view tracks OS updates, app updates and SIM swaps.
@@ -165,12 +166,12 @@ type JobStore interface {
 
 	// CountByStatus counts jobs created at or after since, per status. Statuses
 	// with no jobs are absent rather than zero.
-	CountByStatus(ctx context.Context, since time.Time) (map[JobStatus]int, error)
+	CountByStatus(ctx context.Context, scope Scope, since time.Time) (map[JobStatus]int, error)
 
 	// CountByBucket counts jobs created at or after from, per status, in
 	// consecutive buckets of the given width starting at from — the activity
 	// chart's series. Empty buckets are absent.
-	CountByBucket(ctx context.Context, from time.Time, bucket time.Duration) ([]BucketCount, error)
+	CountByBucket(ctx context.Context, scope Scope, from time.Time, bucket time.Duration) ([]BucketCount, error)
 
 	// ClaimCallbacksDue returns up to limit jobs whose webhook is owed and due,
 	// locked for the caller's transaction. Same contract as ClaimSchedulable.
@@ -203,11 +204,26 @@ type JobResult struct {
 	CompletedAt  time.Time
 }
 
+// AccountStore keeps the accounts everything else is scoped by.
+type AccountStore interface {
+	// Create adds an account.
+	Create(ctx context.Context, name string) (*Account, error)
+	// Get returns one account, or ErrNotFound.
+	Get(ctx context.Context, id uuid.UUID) (*Account, error)
+	// List returns every account, oldest first (the default one leads).
+	List(ctx context.Context) ([]*Account, error)
+}
+
 // EnrollmentStore persists the single-use tokens that let a phone join.
 type EnrollmentStore interface {
 	// Create mints a token. tokenHash is the hash of the value encoded in the
 	// QR code; the plaintext is shown to the operator once and never stored.
-	Create(ctx context.Context, tokenHash string, expiresAt time.Time) (*EnrollmentToken, error)
+	Create(ctx context.Context, accountID uuid.UUID, tokenHash string, expiresAt time.Time) (*EnrollmentToken, error)
+
+	// Lookup returns a token by hash without redeeming it — to learn which
+	// account the device being enrolled will belong to — or ErrNotFound.
+	// Validity is still decided by Consume, inside the same transaction.
+	Lookup(ctx context.Context, tokenHash string) (*EnrollmentToken, error)
 
 	// Consume redeems a token for the given device, atomically. This is the
 	// single point that makes a photographed QR code worthless after first use,

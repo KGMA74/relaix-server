@@ -86,7 +86,7 @@ func TestEnrollReturnsIdentityAndToken(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	minted, err := h.service.MintEnrollmentToken(ctx)
+	minted, err := h.service.MintEnrollmentToken(ctx, uuid.Nil)
 	if err != nil {
 		t.Fatalf("mint: %v", err)
 	}
@@ -128,7 +128,7 @@ func TestTokenFromEnrollOpensAConnectStream(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	minted, err := h.service.MintEnrollmentToken(ctx)
+	minted, err := h.service.MintEnrollmentToken(ctx, uuid.Nil)
 	if err != nil {
 		t.Fatalf("mint: %v", err)
 	}
@@ -181,7 +181,7 @@ func TestEnrollRejectsBadTokens(t *testing.T) {
 		{
 			name: "already used",
 			token: func(t *testing.T, h *enrollHarness, ctx context.Context) string {
-				minted, err := h.service.MintEnrollmentToken(ctx)
+				minted, err := h.service.MintEnrollmentToken(ctx, uuid.Nil)
 				if err != nil {
 					t.Fatalf("mint: %v", err)
 				}
@@ -226,7 +226,7 @@ func TestEnrollRejectsExpiredToken(t *testing.T) {
 		Logger:   logger,
 	})
 
-	minted, err := svc.MintEnrollmentToken(context.Background())
+	minted, err := svc.MintEnrollmentToken(context.Background(), uuid.Nil)
 	if err != nil {
 		t.Fatalf("mint: %v", err)
 	}

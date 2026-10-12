@@ -30,6 +30,7 @@ type Factory func(t *testing.T) store.Store
 func RunConformance(t *testing.T, newStore Factory) {
 	t.Helper()
 
+	t.Run("Accounts", func(t *testing.T) { testAccounts(t, newStore) })
 	t.Run("Devices", func(t *testing.T) { testDevices(t, newStore) })
 	t.Run("Jobs", func(t *testing.T) { testJobs(t, newStore) })
 	t.Run("Enrollment", func(t *testing.T) { testEnrollment(t, newStore) })
@@ -349,7 +350,7 @@ func testDevices(t *testing.T, newStore Factory) {
 				t.Fatalf("Create: %v", err)
 			}
 		}
-		got, err := s.Devices().List(ctx)
+		got, err := s.Devices().List(ctx, store.AllAccounts())
 		if err != nil {
 			t.Fatalf("List: %v", err)
 		}
@@ -400,7 +401,7 @@ func testDevices(t *testing.T, newStore Factory) {
 		// "consumed by a device that no longer exists" unrepresentable.
 		s := newStore(t)
 		const tokenHash = "hash-enrolled-delete"
-		if _, err := s.Enrollments().Create(ctx, tokenHash, time.Now().Add(time.Hour)); err != nil {
+		if _, err := s.Enrollments().Create(ctx, uuid.Nil, tokenHash, time.Now().Add(time.Hour)); err != nil {
 			t.Fatalf("Enrollments.Create: %v", err)
 		}
 		dev, err := s.Devices().Create(ctx, &store.Device{Label: "enrolled"}, "hash-dev-enrolled")
@@ -1004,7 +1005,7 @@ func testJobs(t *testing.T, newStore Factory) {
 		}
 
 		from := time.Now().Add(-time.Hour).Truncate(time.Minute)
-		got, err := s.Jobs().CountByBucket(ctx, from, 10*time.Minute)
+		got, err := s.Jobs().CountByBucket(ctx, store.AllAccounts(), from, 10*time.Minute)
 		if err != nil {
 			t.Fatalf("CountByBucket: %v", err)
 		}
@@ -1020,7 +1021,7 @@ func testJobs(t *testing.T, newStore Factory) {
 			t.Errorf("counts = %v, want 3 pending and 1 cancelled", byStatus)
 		}
 
-		later, err := s.Jobs().CountByBucket(ctx, time.Now().Add(time.Hour), time.Minute)
+		later, err := s.Jobs().CountByBucket(ctx, store.AllAccounts(), time.Now().Add(time.Hour), time.Minute)
 		if err != nil || len(later) != 0 {
 			t.Errorf("window in the future: %v, %v; want nothing", later, err)
 		}
@@ -1035,7 +1036,7 @@ func testJobs(t *testing.T, newStore Factory) {
 			t.Fatalf("Cancel: %v", err)
 		}
 
-		all, err := s.Jobs().CountByStatus(ctx, time.Time{})
+		all, err := s.Jobs().CountByStatus(ctx, store.AllAccounts(), time.Time{})
 		if err != nil {
 			t.Fatalf("CountByStatus: %v", err)
 		}
@@ -1047,7 +1048,7 @@ func testJobs(t *testing.T, newStore Factory) {
 		}
 
 		// since is inclusive and excludes what came before it.
-		recent, err := s.Jobs().CountByStatus(ctx, before.CreatedAt.Add(time.Microsecond))
+		recent, err := s.Jobs().CountByStatus(ctx, store.AllAccounts(), before.CreatedAt.Add(time.Microsecond))
 		if err != nil {
 			t.Fatalf("CountByStatus: %v", err)
 		}
@@ -1064,7 +1065,7 @@ func testEnrollment(t *testing.T, newStore Factory) {
 		s := newStore(t)
 		now := time.Now().UTC().Truncate(time.Millisecond)
 
-		tok, err := s.Enrollments().Create(ctx, "hash-e1", now.Add(time.Hour))
+		tok, err := s.Enrollments().Create(ctx, uuid.Nil, "hash-e1", now.Add(time.Hour))
 		if err != nil {
 			t.Fatalf("Create: %v", err)
 		}
@@ -1092,7 +1093,7 @@ func testEnrollment(t *testing.T, newStore Factory) {
 	t.Run("second use is ErrConflict", func(t *testing.T) {
 		s := newStore(t)
 		now := time.Now().UTC()
-		if _, err := s.Enrollments().Create(ctx, "hash-e2", now.Add(time.Hour)); err != nil {
+		if _, err := s.Enrollments().Create(ctx, uuid.Nil, "hash-e2", now.Add(time.Hour)); err != nil {
 			t.Fatalf("Create: %v", err)
 		}
 		d1, _ := s.Devices().Create(ctx, &store.Device{Label: "a"}, "hash-a")
@@ -1109,7 +1110,7 @@ func testEnrollment(t *testing.T, newStore Factory) {
 	t.Run("expired is ErrTokenExpired, not conflict", func(t *testing.T) {
 		s := newStore(t)
 		now := time.Now().UTC()
-		if _, err := s.Enrollments().Create(ctx, "hash-e3", now.Add(-time.Minute)); err != nil {
+		if _, err := s.Enrollments().Create(ctx, uuid.Nil, "hash-e3", now.Add(-time.Minute)); err != nil {
 			t.Fatalf("Create: %v", err)
 		}
 		dev, _ := s.Devices().Create(ctx, &store.Device{Label: "d"}, "hash-d3")
@@ -1136,13 +1137,13 @@ func testEnrollment(t *testing.T, newStore Factory) {
 		s := newStore(t)
 		now := time.Now().UTC()
 
-		if _, err := s.Enrollments().Create(ctx, "expired", now.Add(-time.Hour)); err != nil {
+		if _, err := s.Enrollments().Create(ctx, uuid.Nil, "expired", now.Add(-time.Hour)); err != nil {
 			t.Fatalf("Create: %v", err)
 		}
-		if _, err := s.Enrollments().Create(ctx, "live", now.Add(time.Hour)); err != nil {
+		if _, err := s.Enrollments().Create(ctx, uuid.Nil, "live", now.Add(time.Hour)); err != nil {
 			t.Fatalf("Create: %v", err)
 		}
-		if _, err := s.Enrollments().Create(ctx, "used", now.Add(-time.Hour)); err != nil {
+		if _, err := s.Enrollments().Create(ctx, uuid.Nil, "used", now.Add(-time.Hour)); err != nil {
 			t.Fatalf("Create: %v", err)
 		}
 		dev, _ := s.Devices().Create(ctx, &store.Device{Label: "d"}, "hash-d4")
@@ -1285,7 +1286,7 @@ func testTransactions(t *testing.T, newStore Factory) {
 		if _, err := s.Devices().GetByTokenHash(ctx, "hash-tx2"); !errors.Is(err, store.ErrNotFound) {
 			t.Errorf("rolled-back device survived: %v", err)
 		}
-		devices, err := s.Devices().List(ctx)
+		devices, err := s.Devices().List(ctx, store.AllAccounts())
 		if err != nil {
 			t.Fatalf("List: %v", err)
 		}
@@ -1301,6 +1302,157 @@ func testTransactions(t *testing.T, newStore Factory) {
 		})
 		if err == nil {
 			t.Fatal("nested WithTx was allowed")
+		}
+	})
+}
+
+func testAccounts(t *testing.T, newStore Factory) {
+	ctx := context.Background()
+
+	t.Run("default account exists and leads the list", func(t *testing.T) {
+		s := newStore(t)
+		acc, err := s.Accounts().Get(ctx, store.DefaultAccountID)
+		if err != nil {
+			t.Fatalf("Get default: %v", err)
+		}
+		if acc.Name != "default" {
+			t.Errorf("default account name = %q", acc.Name)
+		}
+		b, err := s.Accounts().Create(ctx, "acme")
+		if err != nil {
+			t.Fatalf("Create: %v", err)
+		}
+		all, err := s.Accounts().List(ctx)
+		if err != nil {
+			t.Fatalf("List: %v", err)
+		}
+		if len(all) != 2 || all[0].ID != store.DefaultAccountID || all[1].ID != b.ID {
+			t.Errorf("List = %+v, want default then acme", all)
+		}
+		if _, err := s.Accounts().Get(ctx, uuid.New()); !errors.Is(err, store.ErrNotFound) {
+			t.Errorf("Get unknown = %v, want ErrNotFound", err)
+		}
+	})
+
+	t.Run("rows without an account land in the default one", func(t *testing.T) {
+		s := newStore(t)
+		d, err := s.Devices().Create(ctx, &store.Device{Label: "old caller"}, "tok-default")
+		if err != nil {
+			t.Fatalf("Create device: %v", err)
+		}
+		j, err := s.Jobs().Create(ctx, &store.Job{Recipient: "+22670000000", Body: "x", Mode: store.ModeQueued})
+		if err != nil {
+			t.Fatalf("Create job: %v", err)
+		}
+		tok, err := s.Enrollments().Create(ctx, uuid.Nil, "enr-default", time.Now().Add(time.Hour))
+		if err != nil {
+			t.Fatalf("Create token: %v", err)
+		}
+		if d.AccountID != store.DefaultAccountID || j.AccountID != store.DefaultAccountID || tok.AccountID != store.DefaultAccountID {
+			t.Errorf("accounts = %v / %v / %v, want the default account for all three", d.AccountID, j.AccountID, tok.AccountID)
+		}
+	})
+
+	t.Run("one account never sees another's devices or jobs", func(t *testing.T) {
+		s := newStore(t)
+		a, err := s.Accounts().Create(ctx, "a")
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, err := s.Accounts().Create(ctx, "b")
+		if err != nil {
+			t.Fatal(err)
+		}
+		da, err := s.Devices().Create(ctx, &store.Device{Label: "a-phone", AccountID: a.ID}, "tok-a")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.Devices().Create(ctx, &store.Device{Label: "b-phone", AccountID: b.ID}, "tok-b"); err != nil {
+			t.Fatal(err)
+		}
+		for _, acc := range []uuid.UUID{a.ID, a.ID, b.ID} {
+			if _, err := s.Jobs().Create(ctx, &store.Job{Recipient: "+22670000000", Body: "x", Mode: store.ModeQueued, AccountID: acc}); err != nil {
+				t.Fatal(err)
+			}
+		}
+
+		devs, err := s.Devices().List(ctx, store.OnlyAccount(a.ID))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(devs) != 1 || devs[0].ID != da.ID || devs[0].AccountID != a.ID {
+			t.Errorf("a's devices = %+v, want only a-phone", devs)
+		}
+		all, _ := s.Devices().List(ctx, store.AllAccounts())
+		if len(all) != 2 {
+			t.Errorf("all devices = %d, want 2", len(all))
+		}
+
+		jobs, err := s.Jobs().List(ctx, store.JobFilter{AccountID: &b.ID})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(jobs) != 1 || jobs[0].AccountID != b.ID {
+			t.Errorf("b's jobs = %d, want 1 of b's", len(jobs))
+		}
+
+		counts, err := s.Jobs().CountByStatus(ctx, store.OnlyAccount(a.ID), time.Now().Add(-time.Hour))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if counts[store.JobPending] != 2 {
+			t.Errorf("a's pending count = %d, want 2", counts[store.JobPending])
+		}
+		buckets, err := s.Jobs().CountByBucket(ctx, store.OnlyAccount(b.ID), time.Now().Add(-time.Hour).Truncate(time.Minute), 10*time.Minute)
+		if err != nil {
+			t.Fatal(err)
+		}
+		n := 0
+		for _, c := range buckets {
+			n += c.Count
+		}
+		if n != 1 {
+			t.Errorf("b's activity = %d jobs, want 1", n)
+		}
+	})
+
+	t.Run("an enrollment token carries its account, and Lookup reads it without consuming", func(t *testing.T) {
+		s := newStore(t)
+		a, err := s.Accounts().Create(ctx, "a")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.Enrollments().Create(ctx, a.ID, "enr-a", time.Now().Add(time.Hour)); err != nil {
+			t.Fatal(err)
+		}
+		got, err := s.Enrollments().Lookup(ctx, "enr-a")
+		if err != nil {
+			t.Fatalf("Lookup: %v", err)
+		}
+		if got.AccountID != a.ID || got.ConsumedAt != nil {
+			t.Errorf("Lookup = %+v, want a's unconsumed token", got)
+		}
+		if _, err := s.Enrollments().Lookup(ctx, "nope"); !errors.Is(err, store.ErrNotFound) {
+			t.Errorf("Lookup unknown = %v, want ErrNotFound", err)
+		}
+	})
+
+	t.Run("rekey moves the device to the enrolling account", func(t *testing.T) {
+		s := newStore(t)
+		b, err := s.Accounts().Create(ctx, "b")
+		if err != nil {
+			t.Fatal(err)
+		}
+		d, err := s.Devices().Create(ctx, &store.Device{Label: "p", HardwareHash: "hw-move"}, "tok-1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := s.Devices().Rekey(ctx, d.ID, &store.Device{Label: "p", AccountID: b.ID}, "tok-2")
+		if err != nil {
+			t.Fatalf("Rekey: %v", err)
+		}
+		if got.AccountID != b.ID {
+			t.Errorf("account after rekey = %v, want b", got.AccountID)
 		}
 	})
 }

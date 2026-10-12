@@ -11,15 +11,21 @@ import (
 
 type enrollmentStore struct{ q querier }
 
-const tokenColumns = `id, expires_at, consumed_at, device_id, created_at`
+const tokenColumns = `id, account_id, expires_at, consumed_at, device_id, created_at`
 
-func (e enrollmentStore) Create(ctx context.Context, tokenHash string, expiresAt time.Time) (*store.EnrollmentToken, error) {
+func (e enrollmentStore) Create(ctx context.Context, accountID uuid.UUID, tokenHash string, expiresAt time.Time) (*store.EnrollmentToken, error) {
 	const q = `
-		INSERT INTO enrollment_tokens (token_hash, expires_at)
-		VALUES ($1, $2)
+		INSERT INTO enrollment_tokens (token_hash, expires_at, account_id)
+		VALUES ($1, $2, $3)
 		RETURNING ` + tokenColumns
 
-	tok, err := scanToken(e.q.QueryRow(ctx, q, tokenHash, expiresAt))
+	tok, err := scanToken(e.q.QueryRow(ctx, q, tokenHash, expiresAt, store.AccountOrDefault(accountID)))
+	return tok, translate(err)
+}
+
+func (e enrollmentStore) Lookup(ctx context.Context, tokenHash string) (*store.EnrollmentToken, error) {
+	tok, err := scanToken(e.q.QueryRow(ctx,
+		`SELECT `+tokenColumns+` FROM enrollment_tokens WHERE token_hash = $1`, tokenHash))
 	return tok, translate(err)
 }
 
@@ -83,7 +89,7 @@ func (e enrollmentStore) DeleteExpired(ctx context.Context, before time.Time) (i
 
 func scanToken(row scanner) (*store.EnrollmentToken, error) {
 	var t store.EnrollmentToken
-	err := row.Scan(&t.ID, &t.ExpiresAt, &t.ConsumedAt, &t.DeviceID, &t.CreatedAt)
+	err := row.Scan(&t.ID, &t.AccountID, &t.ExpiresAt, &t.ConsumedAt, &t.DeviceID, &t.CreatedAt)
 	if err != nil {
 		return nil, err
 	}
