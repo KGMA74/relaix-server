@@ -175,3 +175,27 @@ export interface EnrollToken {
   payload: string;
   qrCodePngBase64: string;
 }
+
+export interface ActivityBucket {
+  start: string;
+  /** Sent and delivered: the network took it. */
+  delivered: number;
+  failed: number;
+  /** Pending and assigned. */
+  inFlight: number;
+  cancelled: number;
+}
+
+export interface ActivityTotals {
+  total: number;
+  delivered: number;
+  failed: number;
+}
+
+export interface Activity {
+  window: string;
+  bucketSeconds: number;
+  buckets: ActivityBucket[];
+  current: ActivityTotals;
+  previous: ActivityTotals;
+}

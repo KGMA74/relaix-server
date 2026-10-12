@@ -988,6 +988,44 @@ func testJobs(t *testing.T, newStore Factory) {
 		}
 	})
 
+	t.Run("count by bucket aligns on from and groups by status", func(t *testing.T) {
+		s := newStore(t)
+		for range 3 {
+			if _, err := s.Jobs().Create(ctx, &store.Job{Recipient: "+22670000000", Body: "x", Mode: store.ModeQueued}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		j, err := s.Jobs().Create(ctx, &store.Job{Recipient: "+22670000000", Body: "y", Mode: store.ModeQueued})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := s.Jobs().Cancel(ctx, j.ID, "x"); err != nil {
+			t.Fatal(err)
+		}
+
+		from := time.Now().Add(-time.Hour).Truncate(time.Minute)
+		got, err := s.Jobs().CountByBucket(ctx, from, 10*time.Minute)
+		if err != nil {
+			t.Fatalf("CountByBucket: %v", err)
+		}
+		byStatus := map[store.JobStatus]int{}
+		for _, c := range got {
+			off := c.Start.Sub(from)
+			if off < 0 || off%(10*time.Minute) != 0 {
+				t.Errorf("bucket start %v not aligned on %v", c.Start, from)
+			}
+			byStatus[c.Status] += c.Count
+		}
+		if byStatus[store.JobPending] != 3 || byStatus[store.JobCancelled] != 1 {
+			t.Errorf("counts = %v, want 3 pending and 1 cancelled", byStatus)
+		}
+
+		later, err := s.Jobs().CountByBucket(ctx, time.Now().Add(time.Hour), time.Minute)
+		if err != nil || len(later) != 0 {
+			t.Errorf("window in the future: %v, %v; want nothing", later, err)
+		}
+	})
+
 	t.Run("count by status", func(t *testing.T) {
 		s := newStore(t)
 		before := newJob(t, s, &store.Job{})

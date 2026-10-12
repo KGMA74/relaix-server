@@ -53,6 +53,17 @@
   --sidebar-border: #e3e6ee;
   --sidebar-ring: #4f46e5;
 
+  /*
+   * Chart series, by outcome. Status hues, since the series ARE states; checked
+   * with the dataviz validator against the card surface in each theme (L band,
+   * CVD separation, contrast). The green/indigo pair sits in the tritan floor
+   * band, so the chart always carries the 2px gaps, a legend and a table view.
+   */
+  --chart-ok: #15803d;
+  --chart-flight: #4f46e5;
+  --chart-fail: #c62828;
+  --chart-grid: #e7e9f0;
+
   /* A short shadow and a diffuse one; otherwise every surface sits flat. */
   --surface-shadow: 0 1px 2px rgb(16 24 40 / 0.05), 0 2px 6px -1px rgb(16 24 40 / 0.07);
 }
@@ -94,6 +105,11 @@
   --sidebar-accent-foreground: #ffffff;
   --sidebar-border: #1a1e27;
   --sidebar-ring: #818cf8;
+
+  --chart-ok: #059669;
+  --chart-flight: #6366f1;
+  --chart-fail: #ef4444;
+  --chart-grid: #232933;
 
   /* A shadow barely reads on dark: a faint top highlight lifts the surface instead. */
   --surface-shadow: inset 0 1px 0 rgb(255 255 255 / 0.04), 0 1px 2px rgb(0 0 0 / 0.4),
@@ -158,6 +174,11 @@
   --color-info-line: color-mix(in oklab, var(--info) 35%, var(--card));
   --color-primary-line: color-mix(in oklab, var(--primary) 35%, var(--card));
   --color-row-hover: color-mix(in oklab, var(--muted) 60%, var(--card));
+
+  --color-chart-ok: var(--chart-ok);
+  --color-chart-flight: var(--chart-flight);
+  --color-chart-fail: var(--chart-fail);
+  --color-chart-grid: var(--chart-grid);
 
   --color-sidebar: var(--sidebar);
   --color-sidebar-foreground: var(--sidebar-foreground);
@@ -234,7 +255,8 @@
   }
   .btn-primary,
   .btn-secondary,
-  .btn-danger {
+  .btn-danger,
+  .btn-ghost {
     @apply inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-md px-3.5 text-sm font-medium whitespace-nowrap
       transition-colors outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50
       disabled:pointer-events-none disabled:opacity-50;
@@ -244,6 +266,9 @@
   }
   .btn-secondary {
     @apply border border-input bg-card text-foreground shadow-xs hover:bg-accent dark:bg-input/30 dark:hover:bg-input/50;
+  }
+  .btn-ghost {
+    @apply h-8 px-2.5 text-muted-foreground hover:bg-accent hover:text-foreground;
   }
   .btn-danger {
     @apply bg-destructive text-destructive-foreground hover:bg-destructive/90;

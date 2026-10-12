@@ -120,6 +120,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /countries", s.handleCountries)
 	mux.HandleFunc("POST /admin/devices/enroll-token", s.handleEnrollToken)
 	mux.HandleFunc("GET /stats", s.handleStats)
+	mux.HandleFunc("GET /stats/activity", s.handleActivity)
 	mux.HandleFunc("GET /events", s.handleEvents)
 
 	if s.opts.UI != nil {

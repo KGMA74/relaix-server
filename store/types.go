@@ -28,6 +28,14 @@ type DispatchCount struct {
 	LastDay        int
 }
 
+// BucketCount is how many jobs of one status were created in the bucket that
+// starts at Start.
+type BucketCount struct {
+	Start  time.Time
+	Status JobStatus
+	Count  int
+}
+
 // JobStatus is the lifecycle state of a job. The values match the CHECK
 // constraint on jobs.status; they are a Go string type rather than an int so
 // that a value read from the database is self-describing in a log line.

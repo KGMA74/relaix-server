@@ -262,6 +262,37 @@ func (j jobStore) List(ctx context.Context, f store.JobFilter) ([]*store.Job, er
 	return j.queryJobs(ctx, q, args...)
 }
 
+// CountByBucket walks jobs_created_idx over the window; date_bin aligns the
+// buckets on from, so the caller's bucket boundaries are the database's.
+func (j jobStore) CountByBucket(ctx context.Context, from time.Time, bucket time.Duration) ([]store.BucketCount, error) {
+	const q = `
+		SELECT date_bin(make_interval(secs => $2), created_at, $1) AS b, status, count(*)
+		FROM jobs
+		WHERE created_at >= $1
+		GROUP BY b, status
+		ORDER BY b`
+
+	rows, err := j.q.Query(ctx, q, from, bucket.Seconds())
+	if err != nil {
+		return nil, translate(err)
+	}
+	defer rows.Close()
+
+	var out []store.BucketCount
+	for rows.Next() {
+		var (
+			c      store.BucketCount
+			status string
+		)
+		if err := rows.Scan(&c.Start, &status, &c.Count); err != nil {
+			return nil, translate(err)
+		}
+		c.Status = store.JobStatus(status)
+		out = append(out, c)
+	}
+	return out, translate(rows.Err())
+}
+
 func (j jobStore) CountByStatus(ctx context.Context, since time.Time) (map[store.JobStatus]int, error) {
 	rows, err := j.q.Query(ctx,
 		`SELECT status, count(*) FROM jobs WHERE created_at >= $1 GROUP BY status`, since)

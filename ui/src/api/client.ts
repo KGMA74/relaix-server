@@ -1,4 +1,4 @@
-import type { Country, Device, Policy, EnrollToken, Job, JobEvent, JobPage, SendRequest, Stats } from "./types";
+import type { Activity, Country, Device, Policy, EnrollToken, Job, JobEvent, JobPage, SendRequest, Stats } from "./types";
 
 // The API key lives in sessionStorage: it survives a reload but not closing the
 // tab, which is the right lifetime for an admin credential typed by hand.
@@ -101,6 +101,8 @@ function query(q: JobQuery): string {
 export const api = {
   /** Checks a key without touching the stored one. */
   verifyKey: (key: string) => request<Stats>("GET", "/stats", undefined, key),
+
+  activity: (window = "24h") => request<Activity>("GET", `/stats/activity?window=${encodeURIComponent(window)}`),
 
   stats: (window = "24h") => request<Stats>("GET", `/stats?window=${encodeURIComponent(window)}`),
 

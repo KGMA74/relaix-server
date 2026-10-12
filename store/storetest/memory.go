@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -728,6 +729,31 @@ func compareJobOrder(aAt time.Time, aID uuid.UUID, bAt time.Time, bID uuid.UUID)
 		return c
 	}
 	return bytes.Compare(aID[:], bID[:])
+}
+
+func (j jobStore) CountByBucket(ctx context.Context, from time.Time, bucket time.Duration) ([]store.BucketCount, error) {
+	defer j.s.lock()()
+	if err := j.s.takeFailure(); err != nil {
+		return nil, err
+	}
+	type key struct {
+		start  int64
+		status store.JobStatus
+	}
+	counts := map[key]int{}
+	for _, job := range j.s.jobs {
+		if job.CreatedAt.Before(from) {
+			continue
+		}
+		n := job.CreatedAt.Sub(from) / bucket
+		counts[key{from.Add(n * bucket).UnixNano(), job.Status}]++
+	}
+	out := make([]store.BucketCount, 0, len(counts))
+	for k, n := range counts {
+		out = append(out, store.BucketCount{Start: time.Unix(0, k.start).UTC(), Status: k.status, Count: n})
+	}
+	sort.Slice(out, func(a, b int) bool { return out[a].Start.Before(out[b].Start) })
+	return out, nil
 }
 
 func (j jobStore) CountByStatus(ctx context.Context, since time.Time) (map[store.JobStatus]int, error) {

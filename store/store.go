@@ -167,6 +167,11 @@ type JobStore interface {
 	// with no jobs are absent rather than zero.
 	CountByStatus(ctx context.Context, since time.Time) (map[JobStatus]int, error)
 
+	// CountByBucket counts jobs created at or after from, per status, in
+	// consecutive buckets of the given width starting at from — the activity
+	// chart's series. Empty buckets are absent.
+	CountByBucket(ctx context.Context, from time.Time, bucket time.Duration) ([]BucketCount, error)
+
 	// ClaimCallbacksDue returns up to limit jobs whose webhook is owed and due,
 	// locked for the caller's transaction. Same contract as ClaimSchedulable.
 	ClaimCallbacksDue(ctx context.Context, now time.Time, limit int) ([]*Job, error)

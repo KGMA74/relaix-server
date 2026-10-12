@@ -1,10 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { BatteryCharging, Check, Copy, Loader2, MessageSquare, Plus, Power, RefreshCw, SlidersHorizontal, Smartphone, Trash2 } from "lucide-react";
+import { BatteryCharging, BatteryMedium, Check, Copy, Loader2, MessageSquare, Plus, Power, RefreshCw, Send, Signal, SlidersHorizontal, Smartphone, Trash2 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
 import type { Device } from "../api/types";
-import { ConfirmDialog, Dot, Empty, ErrorNote, Modal, PageHeader, Pill, SignalBars } from "../components/common";
+import { ConfirmDialog, Empty, ErrorNote, Modal, PageHeader, Pill, SignalBars, type Tone } from "../components/common";
 import { PolicyDialog } from "../components/PolicyDialog";
 import { formatDateTime, formatRelative, shortId } from "../lib/format";
 import { useLiveEvent, usePollInterval } from "@/lib/live";
@@ -68,92 +68,146 @@ function DeviceCard({ device: d }: { device: Device }) {
   });
 
   const h = d.health;
+  const state: { tone: Tone; label: string } = !d.enabled
+    ? { tone: "neutral", label: "Désactivé" }
+    : d.ready
+      ? { tone: "success", label: "Prêt à envoyer" }
+      : d.connected
+        ? { tone: "warning", label: "Connecté, pas prêt" }
+        : { tone: "neutral", label: "Hors ligne" };
+  const limits = d.policy?.limits;
+  const usedHour = d.usage?.lastHour ?? 0;
 
   return (
-    <div className={cn("card p-5", !d.enabled && "opacity-70")}>
-      <div className="flex items-start justify-between gap-4">
-        <div className="min-w-0">
+    <div className="card flex flex-col overflow-hidden">
+      <div className="flex items-start gap-3 p-5 pb-4">
+        <div
+          className={cn(
+            "flex size-11 shrink-0 items-center justify-center rounded-lg",
+            state.tone === "success"
+              ? "bg-success-soft text-success"
+              : state.tone === "warning"
+                ? "bg-warning-soft text-warning"
+                : "bg-muted text-muted-foreground",
+          )}
+        >
+          <Smartphone className="size-5" aria-hidden />
+        </div>
+        <div className="min-w-0 flex-1">
           <h2 className="truncate font-semibold">{d.label || "Sans nom"}</h2>
-          <p className="text-sm text-muted-foreground">
-            {[d.model, d.osVersion && `Android ${d.osVersion}`].filter(Boolean).join(" · ") || shortId(d.deviceId)}
+          <p className="truncate text-sm text-muted-foreground">
+            {[d.model, d.osVersion && `Android ${d.osVersion}`, d.carrier].filter(Boolean).join(" · ") || shortId(d.deviceId)}
           </p>
         </div>
-        <div className="flex shrink-0 flex-col items-end gap-1">
-          <Dot on={d.connected} label={d.connected ? "Connecté" : "Hors ligne"} />
-          <Dot on={d.ready} label={d.ready ? "Prêt à envoyer" : "Indisponible"} />
-          {!d.availableNow && <Pill tone="warning">Hors horaires</Pill>}
-          {atCap(d) && <Pill tone="warning">Plafond atteint</Pill>}
+        <div className="flex shrink-0 flex-col items-end gap-1.5">
+          <Pill tone={state.tone}>{state.label}</Pill>
+          {d.enabled && !d.availableNow && <Pill tone="warning">Hors horaires</Pill>}
+          {d.enabled && atCap(d) && <Pill tone="warning">Plafond atteint</Pill>}
         </div>
       </div>
 
-      <button
-        type="button"
-        onClick={() => setEditingRules(true)}
-        className="mt-3 flex w-full items-center gap-2 rounded-md border border-dashed px-3 py-2 text-left text-xs text-muted-foreground transition-colors hover:border-solid hover:bg-row-hover"
-      >
-        <SlidersHorizontal className="size-3.5 shrink-0" aria-hidden />
-        <span className="min-w-0 truncate">{rulesSummary(d)}</span>
-      </button>
+      {!d.enabled && (
+        <div className="mx-5 mb-4 flex items-center gap-3 rounded-md border border-dashed bg-muted/40 px-3 py-2 text-sm">
+          <span className="flex-1 text-muted-foreground">En pause : ne reçoit aucun envoi, et revient seul dès sa réactivation.</span>
+          <button className="btn-primary h-8 px-3" onClick={() => toggle.mutate(true)} disabled={toggle.isPending}>
+            Réactiver
+          </button>
+        </div>
+      )}
 
       {h ? (
-        <div className="mt-4 grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
-          <Metric label="Batterie">
+        <div className="grid grid-cols-3 border-y">
+          <Metric icon={h.isCharging ? <BatteryCharging aria-hidden /> : <BatteryMedium aria-hidden />} label={h.isCharging ? "En charge" : "Batterie"}>
             {h.batteryLevel} %
-            {h.isCharging && <BatteryCharging className="ml-1 size-4 text-success" aria-label="En charge" />}
+            <Meter
+              value={h.batteryLevel / 100}
+              tone={h.isCharging || h.batteryLevel >= 40 ? "success" : h.batteryLevel >= 20 ? "warning" : "danger"}
+            />
           </Metric>
-          <Metric label="Signal">
-            <SignalBars level={h.signalStrength} /> <span className="ml-1 text-xs text-muted-foreground">{h.networkType}</span>
-          </Metric>
-          <Metric label="Envoyés (1 h · 24 h)">
-            <span className={cn(atCap(d) && "text-warning")}>
-              {d.usage?.lastHour ?? 0}
-              {d.policy?.limits?.perHour ? `/${d.policy.limits.perHour}` : ""} · {d.usage?.lastDay ?? 0}
-              {d.policy?.limits?.perDay ? `/${d.policy.limits.perDay}` : ""}
+          <Metric icon={<Signal aria-hidden />} label={h.networkType ? `Signal · ${h.networkType}` : "Signal"}>
+            <span className="inline-flex items-center gap-2">
+              {h.signalStrength}/4 <SignalBars level={h.signalStrength} />
             </span>
           </Metric>
-          <Metric label="Permissions">{h.permissionsOk ? "OK" : <span className="text-destructive">Manquantes</span>}</Metric>
+          <Metric icon={<Send aria-hidden />} label="Envoyés · 1 h">
+            <span className={cn(atCap(d) && "text-warning")}>
+              {usedHour}
+              {limits?.perHour ? <span className="text-sm font-normal text-muted-foreground"> / {limits.perHour}</span> : null}
+            </span>
+            {limits?.perHour ? (
+              <Meter value={usedHour / limits.perHour} tone={usedHour >= limits.perHour ? "warning" : "primary"} />
+            ) : null}
+          </Metric>
         </div>
       ) : (
-        <p className="mt-4 text-sm text-muted-foreground">Aucun rapport de santé : ce téléphone ne s'est jamais connecté.</p>
+        <p className="border-y px-5 py-4 text-sm text-muted-foreground">Aucun rapport de santé : ce téléphone ne s'est jamais connecté.</p>
       )}
 
-      {d.sims && d.sims.length > 0 && (
-        <div className="mt-4 overflow-hidden rounded-md border">
-          {d.sims.map((s) => (
-            <div key={s.subscriptionId} className="flex items-center gap-3 border-b px-3 py-2 text-sm last:border-0">
-              <span className="rounded-sm bg-muted px-1.5 py-0.5 text-xs font-medium">SIM {s.slotIndex + 1}</span>
-              <span className="min-w-0 flex-1 truncate">
-                {s.carrier || s.displayName || "Opérateur inconnu"}
-                {s.phoneNumber && <span className="ml-2 font-mono text-muted-foreground">{s.phoneNumber}</span>}
-                {s.isDefaultSms && <span className="ml-2 text-xs text-primary">par défaut</span>}
-              </span>
-              <SignalBars level={s.signalStrength} />
-              <span className="w-16 text-right text-xs text-muted-foreground">{s.sentLastHour} / h</span>
-              <Dot on={s.simReady} label="" />
-            </div>
-          ))}
-        </div>
-      )}
+      <div className="flex flex-1 flex-col gap-3 p-5">
+        {h && !h.permissionsOk && (
+          <div className="rounded-md border border-danger-line bg-danger-soft px-3 py-2 text-sm text-destructive">
+            Permission SMS manquante sur le téléphone : il ne peut rien envoyer.
+          </div>
+        )}
 
-      <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t pt-4">
+        {d.sims && d.sims.length > 0 && (
+          <div className="overflow-hidden rounded-md border">
+            {d.sims.map((sim) => {
+              const used = d.usage?.sims?.[String(sim.subscriptionId)]?.lastHour ?? 0;
+              const simPolicy = d.policy?.sims?.find((x) => x.subscriptionId === sim.subscriptionId);
+              const cap = simPolicy?.limits?.perHour;
+              return (
+                <div key={sim.subscriptionId} className="flex items-center gap-3 border-b px-3 py-2.5 text-sm last:border-0">
+                  <span className="rounded-sm bg-muted px-1.5 py-0.5 text-xs font-medium">SIM {sim.slotIndex + 1}</span>
+                  <span className="min-w-0 flex-1 truncate">
+                    {sim.carrier || sim.displayName || "Opérateur inconnu"}
+                    {sim.phoneNumber && <span className="ml-2 font-mono text-muted-foreground">{sim.phoneNumber}</span>}
+                    {sim.isDefaultSms && <span className="ml-2 text-xs text-primary">par défaut</span>}
+                    {simPolicy?.disabled && <span className="ml-2 text-xs text-muted-foreground">désactivée</span>}
+                  </span>
+                  <SignalBars level={sim.signalStrength} />
+                  <span className="w-20 text-right text-xs text-muted-foreground tabular-nums">
+                    {used}
+                    {cap ? `/${cap}` : ""} · 1 h
+                  </span>
+                  <span
+                    className={cn("size-2 rounded-full", sim.simReady ? "bg-success" : "bg-muted-foreground/30")}
+                    aria-label={sim.simReady ? "SIM prête" : "SIM indisponible"}
+                  />
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        <button
+          type="button"
+          onClick={() => setEditingRules(true)}
+          className="flex w-full items-center gap-2 rounded-md border border-dashed px-3 py-2 text-left text-xs text-muted-foreground transition-colors hover:border-solid hover:bg-row-hover"
+        >
+          <SlidersHorizontal className="size-3.5 shrink-0" aria-hidden />
+          <span className="min-w-0 flex-1 truncate">{rulesSummary(d)}</span>
+          <span className="shrink-0 font-medium text-primary">Modifier</span>
+        </button>
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-2 border-t bg-muted/30 px-5 py-3">
         <span className="text-xs text-muted-foreground" title={formatDateTime(d.lastSeenAt)}>
-          Vu {formatRelative(d.lastSeenAt)} · {d.phoneNumber || d.carrier || shortId(d.deviceId)}
+          Vu {formatRelative(d.lastSeenAt)}
         </span>
-        <div className="flex gap-2">
-          <button className="btn-secondary" onClick={() => setEditingRules(true)}>
-            <SlidersHorizontal className="size-4" aria-hidden />
-            Règles
-          </button>
-          <Link to={`/history?deviceId=${d.deviceId}`} className="btn-secondary">
+        <div className="flex gap-1">
+          <Link to={`/history?deviceId=${d.deviceId}`} className="btn-ghost">
             <MessageSquare className="size-4" aria-hidden />
             Messages
           </Link>
-          <button className="btn-secondary" onClick={() => toggle.mutate(!d.enabled)} disabled={toggle.isPending}>
-            <Power className="size-4" aria-hidden />
-            {d.enabled ? "Désactiver" : "Activer"}
-          </button>
+          {d.enabled && (
+            <button className="btn-ghost" onClick={() => toggle.mutate(false)} disabled={toggle.isPending}>
+              <Power className="size-4" aria-hidden />
+              Désactiver
+            </button>
+          )}
           <button
-            className="btn-secondary text-destructive hover:text-destructive"
+            className="btn-ghost text-destructive hover:text-destructive"
             onClick={() => setConfirmDelete(true)}
             aria-label="Retirer"
             title="Retirer"
@@ -162,9 +216,11 @@ function DeviceCard({ device: d }: { device: Device }) {
           </button>
         </div>
       </div>
-      <div className="mt-2">
-        <ErrorNote error={toggle.error} />
-      </div>
+      {toggle.error && (
+        <div className="px-5 pb-3">
+          <ErrorNote error={toggle.error} />
+        </div>
+      )}
 
       {editingRules && <PolicyDialog device={d} onClose={() => setEditingRules(false)} />}
 
@@ -190,11 +246,24 @@ function DeviceCard({ device: d }: { device: Device }) {
   );
 }
 
-function Metric({ label, children }: { label: string; children: ReactNode }) {
+function Metric({ icon, label, children }: { icon: ReactNode; label: string; children: ReactNode }) {
   return (
-    <div>
-      <div className="text-xs text-muted-foreground">{label}</div>
-      <div className="mt-0.5 flex items-center font-medium">{children}</div>
+    <div className="border-r px-5 py-3 last:border-r-0">
+      <div className="flex items-center gap-1.5 text-xs text-muted-foreground [&_svg]:size-3.5">
+        {icon}
+        <span className="truncate">{label}</span>
+      </div>
+      <div className="mt-1 text-lg font-semibold tabular-nums">{children}</div>
+    </div>
+  );
+}
+
+/** A thin bar under a figure: how full it is against its maximum. */
+function Meter({ value, tone }: { value: number; tone: "success" | "warning" | "danger" | "primary" }) {
+  const bg = { success: "bg-success", warning: "bg-warning", danger: "bg-destructive", primary: "bg-primary" }[tone];
+  return (
+    <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-muted" aria-hidden>
+      <div className={cn("h-full rounded-full", bg)} style={{ width: `${Math.min(100, Math.max(0, value * 100))}%` }} />
     </div>
   );
 }
