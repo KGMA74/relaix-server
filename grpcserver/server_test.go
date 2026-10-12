@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"strings"
 	"testing"
 	"time"
 
@@ -697,5 +698,40 @@ func TestRulesTravelBothWays(t *testing.T) {
 	}
 	if v := msg.GetPolicy().GetVersion(); v != 2 {
 		t.Errorf("after an invalid edit the phone got version %d, want the current 2", v)
+	}
+}
+
+// Disabling a connected device ends its stream as "disabled", not as a bad
+// token: the agent must know to wait for re-enabling rather than give up.
+func TestDisablingMidStreamIsPermissionDeniedNotBadToken(t *testing.T) {
+	h := newHarness(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	stream, ack := h.connect(t, ctx, deviceToken)
+	if ack == nil || !ack.GetAccepted() {
+		t.Fatal("registration failed")
+	}
+	if err := h.store.Devices().SetEnabled(ctx, h.device.ID, false); err != nil {
+		t.Fatalf("SetEnabled: %v", err)
+	}
+	if err := stream.Send(&v1.DeviceMessage{
+		MessageId:   uuid.NewString(),
+		DeviceToken: deviceToken,
+		Payload:     &v1.DeviceMessage_Heartbeat{Heartbeat: &v1.Heartbeat{Health: healthyProto()}},
+	}); err != nil {
+		t.Fatalf("send heartbeat: %v", err)
+	}
+	_, err := stream.Recv()
+	if status.Code(err) != codes.PermissionDenied || !strings.Contains(err.Error(), "disabled") {
+		t.Fatalf("Recv = %v, want PermissionDenied \"device is disabled\"", err)
+	}
+
+	// Re-enabled, the same token connects again.
+	if err := h.store.Devices().SetEnabled(ctx, h.device.ID, true); err != nil {
+		t.Fatalf("SetEnabled: %v", err)
+	}
+	if _, ack := h.connect(t, ctx, deviceToken); ack == nil || !ack.GetAccepted() {
+		t.Fatal("re-enabled device could not connect with its token")
 	}
 }

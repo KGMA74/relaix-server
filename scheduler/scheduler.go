@@ -211,6 +211,14 @@ func (f fleet) policyFor(id uuid.UUID) (policy.Policy, policy.Device) {
 	return d.Policy, pd
 }
 
+// enabled reports whether a device may be handed work. One the store does not
+// know is treated as enabled, like its policy: the hub listed it, and there
+// is nothing to say it was turned off.
+func (f fleet) enabled(id uuid.UUID) bool {
+	d, ok := f.devices[id]
+	return !ok || d.Enabled
+}
+
 // anyAcceptsEver reports whether some enabled device's rules would ever take a
 // job for recipient. An empty fleet answers yes: a phone not yet enrolled may
 // still come, and the job keeps waiting for it as it always did.
@@ -344,6 +352,13 @@ func (s *Scheduler) decide(
 			requestedSub = *job.SubscriptionID
 		}
 		p, pd := devices.policyFor(want)
+		if !devices.enabled(want) {
+			// Disabled since the hub listed it: not now, like an offline device.
+			if job.Mode == store.ModeImmediate {
+				s.fail(ctx, tx, job, "device_unavailable", "requested device is disabled and mode is immediate", now)
+			}
+			return uuid.Nil, 0, false
+		}
 		choice := p.Choose(now, job.Recipient, pd, requestedSub)
 		if choice.Never {
 			s.fail(ctx, tx, job, "rejected_by_device_rules",
@@ -379,6 +394,11 @@ func (s *Scheduler) decide(
 	eligible := make([]hub.DeviceState, 0, len(ready))
 	subs := make(map[uuid.UUID]int32, len(ready))
 	for _, d := range ready {
+		// A device can still be connected for a moment after being disabled;
+		// it is never handed work in that moment.
+		if !devices.enabled(d.DeviceID) {
+			continue
+		}
 		p, pd := devices.policyFor(d.DeviceID)
 		if c := p.Choose(now, job.Recipient, pd, 0); c.OK {
 			eligible = append(eligible, d)

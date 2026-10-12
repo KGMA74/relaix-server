@@ -35,6 +35,8 @@ type fakeHub struct {
 	ready     []hub.DeviceState
 	err       error
 	sent      []sentMsg
+	// disconnected records Disconnect calls.
+	disconnected []uuid.UUID
 }
 
 func (f *fakeHub) ListConnected(context.Context) ([]hub.DeviceState, error) {
@@ -43,6 +45,11 @@ func (f *fakeHub) ListConnected(context.Context) ([]hub.DeviceState, error) {
 
 func (f *fakeHub) ListReady(context.Context) ([]hub.DeviceState, error) {
 	return f.ready, f.err
+}
+
+func (f *fakeHub) Disconnect(_ context.Context, deviceID uuid.UUID, _ string) error {
+	f.disconnected = append(f.disconnected, deviceID)
+	return nil
 }
 
 func (f *fakeHub) Send(_ context.Context, deviceID uuid.UUID, msg *v1.ServerMessage) error {

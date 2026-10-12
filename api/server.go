@@ -29,6 +29,7 @@ type Hub interface {
 	ListConnected(ctx context.Context) ([]hub.DeviceState, error)
 	ListReady(ctx context.Context) ([]hub.DeviceState, error)
 	Send(ctx context.Context, deviceID uuid.UUID, msg *v1.ServerMessage) error
+	Disconnect(ctx context.Context, deviceID uuid.UUID, reason string) error
 }
 
 // Enroller mints enrollment tokens.

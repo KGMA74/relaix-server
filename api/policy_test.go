@@ -112,3 +112,23 @@ func TestDeviceListingReportsUsage(t *testing.T) {
 		t.Errorf("usage = %+v, want 2/2 with 1 on SIM 2", u)
 	}
 }
+
+// Disabling cuts the connection at once; enabling leaves it alone.
+func TestDisablingDisconnectsTheDevice(t *testing.T) {
+	h := newHarness(t, Options{APIKey: testAPIKey})
+	dev := h.store.SeedDevice(&store.Device{Label: "d", Enabled: true})
+	path := "/devices/" + dev.ID.String()
+
+	if rec := h.do(t, http.MethodPatch, path, map[string]any{"enabled": false}); rec.Code != http.StatusOK {
+		t.Fatalf("disable: %d", rec.Code)
+	}
+	if len(h.hub.disconnected) != 1 || h.hub.disconnected[0] != dev.ID {
+		t.Fatalf("disconnected = %v, want the device once", h.hub.disconnected)
+	}
+	if rec := h.do(t, http.MethodPatch, path, map[string]any{"enabled": true}); rec.Code != http.StatusOK {
+		t.Fatalf("enable: %d", rec.Code)
+	}
+	if len(h.hub.disconnected) != 1 {
+		t.Errorf("enabling disconnected the device too")
+	}
+}

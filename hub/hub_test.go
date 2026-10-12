@@ -669,3 +669,35 @@ func TestConcurrentOperations(t *testing.T) {
 		t.Errorf("ListConnected returned %d devices, want %d", len(all), devices)
 	}
 }
+
+func TestDisconnectClosesTheCurrentConnection(t *testing.T) {
+	h, _, ctx := start(t, Options{})
+	id := uuid.New()
+
+	reg, err := h.Register(ctx, id, healthy())
+	if err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+	if err := h.Disconnect(ctx, id, "disabled by operator"); err != nil {
+		t.Fatalf("Disconnect: %v", err)
+	}
+	select {
+	case _, open := <-reg.Out:
+		if open {
+			t.Fatal("channel delivered a message; want closed")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("channel was not closed on disconnect")
+	}
+	if _, err := h.Get(ctx, id); !errors.Is(err, ErrNotConnected) {
+		t.Fatalf("Get after Disconnect = %v, want ErrNotConnected", err)
+	}
+	// The handler's own Unregister afterwards is a harmless no-op, and so is
+	// disconnecting a device that is not there.
+	if err := h.Unregister(ctx, id, reg.ID, "stream closed"); err != nil {
+		t.Fatalf("Unregister after Disconnect: %v", err)
+	}
+	if err := h.Disconnect(ctx, uuid.New(), "x"); err != nil {
+		t.Fatalf("Disconnect unknown: %v", err)
+	}
+}

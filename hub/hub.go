@@ -270,6 +270,22 @@ func (h *Hub) Unregister(ctx context.Context, deviceID, regID uuid.UUID, reason 
 	})
 }
 
+// Disconnect ends a device's current connection, whichever it is: the hub
+// closes its outbound channel, which is how the stream handler learns to
+// return. For a device an operator just disabled — it would otherwise stay
+// connected, and ready, until its next message. Not connected is not an error.
+func (h *Hub) Disconnect(ctx context.Context, deviceID uuid.UUID, reason string) error {
+	return h.do(ctx, func(devices map[uuid.UUID]*entry) {
+		e, ok := devices[deviceID]
+		if !ok {
+			return
+		}
+		close(e.out)
+		delete(devices, deviceID)
+		h.opts.Logger.Info("hub disconnected device", "device_id", deviceID, "reason", reason)
+	})
+}
+
 // Heartbeat refreshes liveness and health. It also clears the busy flag: a
 // device that is sending heartbeats again is reading its stream again.
 func (h *Hub) Heartbeat(ctx context.Context, deviceID, regID uuid.UUID, health *store.DeviceHealth) error {

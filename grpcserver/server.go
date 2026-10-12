@@ -220,8 +220,8 @@ func (s *Server) readLoop(
 		// per-message token decision in docs/protocol.md. A frame injected into
 		// an established stream is rejected on its own merits rather than
 		// inheriting trust from the handshake.
-		if !s.tokenMatches(ctx, msg.GetDeviceToken(), device.ID) {
-			return status.Error(codes.Unauthenticated, "invalid device token")
+		if err := s.checkMessageToken(ctx, msg.GetDeviceToken(), device.ID); err != nil {
+			return err
 		}
 
 		switch payload := msg.GetPayload().(type) {
@@ -273,14 +273,28 @@ func (s *Server) authenticate(ctx context.Context, token string) (*store.Device,
 	return device, nil
 }
 
-// tokenMatches checks a per-message token against the device that owns the
-// stream. Cheap by design: this runs on every message of every stream.
-func (s *Server) tokenMatches(ctx context.Context, token string, deviceID uuid.UUID) bool {
+// checkMessageToken checks a per-message token against the device that owns
+// the stream. Cheap by design: this runs on every message of every stream.
+//
+// A disabled device is refused with PermissionDenied, not Unauthenticated:
+// its token is still good, and the agent must be able to tell "the operator
+// paused me, try again later" from "this credential is dead, re-enroll". Both
+// used to read "invalid device token", and an agent that took it at its word
+// stopped reconnecting — so re-enabling a device never brought it back.
+func (s *Server) checkMessageToken(ctx context.Context, token string, deviceID uuid.UUID) error {
 	if token == "" {
-		return false
+		return status.Error(codes.Unauthenticated, "missing device token")
 	}
 	device, err := s.store.Devices().GetByTokenHash(ctx, s.hasher.Hash(token))
-	return err == nil && device.ID == deviceID && device.Enabled
+	switch {
+	case errors.Is(err, store.ErrNotFound) || (err == nil && device.ID != deviceID):
+		return status.Error(codes.Unauthenticated, "invalid device token")
+	case err != nil:
+		return status.Errorf(codes.Unavailable, "lookup device: %v", err)
+	case !device.Enabled:
+		return status.Error(codes.PermissionDenied, "device is disabled")
+	}
+	return nil
 }
 
 // persistRegister refreshes the stored device info and liveness from a

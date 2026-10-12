@@ -91,6 +91,14 @@ func (s *Server) handlePatchDevice(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.opts.Logger.Info("device enabled flag set", "device_id", id, "enabled", *req.Enabled)
+	if !*req.Enabled {
+		// Off now, not at its next heartbeat: until then it would still look
+		// ready, and the phone would not know it had been paused. It
+		// reconnects, is refused as disabled, and waits to be re-enabled.
+		if err := s.hub.Disconnect(ctx, id, "disabled by operator"); err != nil {
+			s.opts.Logger.Warn("could not disconnect disabled device", "device_id", id, "err", err)
+		}
+	}
 	s.opts.Events.Publish(events.Event{Type: events.DeviceUpdated, DeviceID: id.String()})
 
 	device, err := s.store.Devices().Get(ctx, id)

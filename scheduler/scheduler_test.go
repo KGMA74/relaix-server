@@ -746,3 +746,30 @@ func TestCappedFleetMakesJobsWaitNotFail(t *testing.T) {
 		t.Errorf("job beyond the cap is %q (%s), want pending", got.Status, got.ErrorCode)
 	}
 }
+
+// A device disabled while still connected is listed ready by the hub for a
+// moment; it must not be handed work in that moment.
+func TestDisabledButConnectedDeviceGetsNoJob(t *testing.T) {
+	st := storetest.New()
+	off := st.SeedDevice(&store.Device{Enabled: false}).ID
+	on := st.SeedDevice(&store.Device{Enabled: true}).ID
+	h := newFakeHub(off, on)
+	s := newScheduler(t, st, h, Options{})
+
+	for range 3 {
+		st.SeedJob(&store.Job{Recipient: "+22670000000", Body: "x", Mode: store.ModeQueued})
+	}
+	pinned := st.SeedJob(&store.Job{Recipient: "+22670000000", Body: "p", Mode: store.ModeQueued, RequestedDeviceID: ptr(off)})
+	if err := s.Tick(context.Background()); err != nil {
+		t.Fatalf("Tick: %v", err)
+	}
+	if n := len(h.sentTo(off)); n != 0 {
+		t.Errorf("disabled device was handed %d jobs", n)
+	}
+	if n := len(h.sentTo(on)); n != 3 {
+		t.Errorf("enabled device got %d jobs, want 3", n)
+	}
+	if got := st.JobByID(pinned.ID).Status; got != store.JobPending {
+		t.Errorf("job pinned to the disabled device is %q, want pending until it is re-enabled", got)
+	}
+}
