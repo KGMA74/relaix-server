@@ -23,6 +23,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/KGMA74/relaix-server/policy"
 	"github.com/KGMA74/relaix-server/store"
 )
 
@@ -219,6 +220,14 @@ func (d deviceStore) Create(ctx context.Context, in *store.Device, tokenHash str
 	if _, taken := d.s.tokenToID[tokenHash]; taken {
 		return nil, store.ErrConflict
 	}
+	// Mirrors the partial unique index on hardware_hash.
+	if in.HardwareHash != "" {
+		for _, other := range d.s.devices {
+			if other.HardwareHash == in.HardwareHash {
+				return nil, store.ErrConflict
+			}
+		}
+	}
 
 	cp := *in
 	if cp.ID == uuid.Nil {
@@ -270,6 +279,71 @@ func (d deviceStore) List(ctx context.Context) ([]*store.Device, error) {
 	return out, nil
 }
 
+func (d deviceStore) GetByHardwareHash(ctx context.Context, hardwareHash string) (*store.Device, error) {
+	defer d.s.lock()()
+	if hardwareHash == "" {
+		return nil, store.ErrNotFound
+	}
+	for _, dev := range d.s.devices {
+		if dev.HardwareHash == hardwareHash {
+			return copyDevice(dev), nil
+		}
+	}
+	return nil, store.ErrNotFound
+}
+
+func (d deviceStore) Rekey(ctx context.Context, id uuid.UUID, in *store.Device, tokenHash string) (*store.Device, error) {
+	defer d.s.lock()()
+	if err := d.s.takeFailure(); err != nil {
+		return nil, err
+	}
+	dev, ok := d.s.devices[id]
+	if !ok {
+		return nil, store.ErrNotFound
+	}
+	if owner, taken := d.s.tokenToID[tokenHash]; taken && owner != id {
+		return nil, store.ErrConflict
+	}
+	// The old token must stop authenticating: in Postgres it is overwritten
+	// on the row, here it lives in a separate index.
+	for hash, owner := range d.s.tokenToID {
+		if owner == id {
+			delete(d.s.tokenToID, hash)
+		}
+	}
+	d.s.tokenToID[tokenHash] = id
+
+	dev.Enabled = true
+	dev.Label = in.Label
+	dev.PhoneNumber = in.PhoneNumber
+	dev.Manufacturer = in.Manufacturer
+	dev.Model = in.Model
+	dev.OSVersion = in.OSVersion
+	dev.AgentVersion = in.AgentVersion
+	dev.Carrier = in.Carrier
+	dev.TimeZone = in.TimeZone
+	dev.Sims = append([]store.SimInfo(nil), in.Sims...)
+	dev.UpdatedAt = time.Now()
+	return copyDevice(dev), nil
+}
+
+func (d deviceStore) SetPolicy(ctx context.Context, id uuid.UUID, p policy.Policy) (policy.Policy, error) {
+	defer d.s.lock()()
+	if err := d.s.takeFailure(); err != nil {
+		return policy.Policy{}, err
+	}
+	dev, ok := d.s.devices[id]
+	if !ok {
+		return policy.Policy{}, store.ErrNotFound
+	}
+	now := time.Now().UTC()
+	p.Version = dev.Policy.Version + 1
+	p.UpdatedAt = &now
+	dev.Policy = p
+	dev.UpdatedAt = now
+	return p, nil
+}
+
 func (d deviceStore) UpdateInfo(ctx context.Context, id uuid.UUID, in *store.Device) error {
 	defer d.s.lock()()
 	if err := d.s.takeFailure(); err != nil {
@@ -286,6 +360,7 @@ func (d deviceStore) UpdateInfo(ctx context.Context, id uuid.UUID, in *store.Dev
 	dev.OSVersion = in.OSVersion
 	dev.AgentVersion = in.AgentVersion
 	dev.Carrier = in.Carrier
+	dev.TimeZone = in.TimeZone
 	dev.Sims = append([]store.SimInfo(nil), in.Sims...)
 	dev.UpdatedAt = time.Now()
 	return nil

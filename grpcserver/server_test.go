@@ -17,8 +17,10 @@ import (
 	"google.golang.org/grpc/test/bufconn"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"github.com/KGMA74/relaix-server/events"
 	v1 "github.com/KGMA74/relaix-server/gen/smsgateway/v1"
 	"github.com/KGMA74/relaix-server/hub"
+	"github.com/KGMA74/relaix-server/policy"
 	"github.com/KGMA74/relaix-server/store"
 	"github.com/KGMA74/relaix-server/store/storetest"
 	"github.com/KGMA74/relaix-server/token"
@@ -36,6 +38,7 @@ type harness struct {
 	hub    *hub.Hub
 	client v1.DeviceGatewayClient
 	device *store.Device
+	events *events.Broker
 }
 
 func newHarness(t *testing.T) *harness {
@@ -61,8 +64,10 @@ func newHarness(t *testing.T) *harness {
 	hubDone := make(chan struct{})
 	go func() { defer close(hubDone); _ = h.Run(hubCtx) }()
 
+	broker := events.New()
 	srv := New(st, h, hasher, Options{
 		HeartbeatInterval: 30 * time.Second,
+		Events:            broker,
 		Now:               func() time.Time { return testNow },
 		Logger:            logger,
 	})
@@ -91,7 +96,7 @@ func newHarness(t *testing.T) *harness {
 		<-hubDone
 	})
 
-	return &harness{store: st, hub: h, client: v1.NewDeviceGatewayClient(conn), device: device}
+	return &harness{store: st, hub: h, client: v1.NewDeviceGatewayClient(conn), device: device, events: broker}
 }
 
 func healthyProto() *v1.DeviceHealth {
@@ -543,5 +548,154 @@ func waitFor(t *testing.T, cond func() bool, msg string) {
 			t.Fatal(msg)
 		case <-time.After(5 * time.Millisecond):
 		}
+	}
+}
+
+// A phone whose enrollment is forgotten says so on its way out: the device is
+// retired, the stream ends, and the dashboard is told.
+func TestLeaveRetiresTheDeviceAndEndsTheStream(t *testing.T) {
+	h := newHarness(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	sub, unsubscribe := h.events.Subscribe()
+	defer unsubscribe()
+
+	stream, ack := h.connect(t, ctx, deviceToken)
+	if ack == nil || !ack.GetAccepted() {
+		t.Fatal("registration failed")
+	}
+	err := stream.Send(&v1.DeviceMessage{
+		MessageId:   uuid.NewString(),
+		DeviceToken: deviceToken,
+		Payload:     &v1.DeviceMessage_Leave{Leave: &v1.Leave{Reason: "forgotten on the device"}},
+	})
+	if err != nil {
+		t.Fatalf("send Leave: %v", err)
+	}
+
+	// The server closes the stream cleanly once the device is gone.
+	if _, err := stream.Recv(); !errors.Is(err, io.EOF) {
+		t.Fatalf("Recv after Leave = %v, want EOF", err)
+	}
+	if _, err := h.store.Devices().Get(ctx, h.device.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("device after Leave: %v, want ErrNotFound", err)
+	}
+	waitForEvent(t, sub, events.DeviceRemoved, h.device.ID.String())
+
+	// And its token no longer opens a stream.
+	_, ack = h.connect(t, ctx, deviceToken)
+	if ack != nil {
+		t.Error("a retired device's token was accepted again")
+	}
+}
+
+func TestConnectionLifecyclePublishesEvents(t *testing.T) {
+	h := newHarness(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	sub, unsubscribe := h.events.Subscribe()
+	defer unsubscribe()
+
+	streamCtx, closeStream := context.WithCancel(ctx)
+	stream, ack := h.connect(t, streamCtx, deviceToken)
+	if ack == nil || !ack.GetAccepted() {
+		t.Fatal("registration failed")
+	}
+	id := h.device.ID.String()
+	waitForEvent(t, sub, events.DeviceConnected, id)
+
+	err := stream.Send(&v1.DeviceMessage{
+		MessageId:   uuid.NewString(),
+		DeviceToken: deviceToken,
+		Payload:     &v1.DeviceMessage_Heartbeat{Heartbeat: &v1.Heartbeat{Health: healthyProto()}},
+	})
+	if err != nil {
+		t.Fatalf("send heartbeat: %v", err)
+	}
+	waitForEvent(t, sub, events.DeviceHealth, id)
+
+	closeStream()
+	waitForEvent(t, sub, events.DeviceDisconnected, id)
+}
+
+// waitForEvent reads sub until an event of type typ about deviceID arrives.
+func waitForEvent(t *testing.T, sub <-chan events.Event, typ, deviceID string) {
+	t.Helper()
+	timeout := time.After(3 * time.Second)
+	for {
+		select {
+		case e, ok := <-sub:
+			if !ok {
+				t.Fatalf("event stream closed before %s", typ)
+			}
+			if e.Type == typ && e.DeviceID == deviceID {
+				return
+			}
+		case <-timeout:
+			t.Fatalf("no %s event for %s", typ, deviceID)
+		}
+	}
+}
+
+// The phone learns its rules on connect, and an edit made on the phone is
+// stored, versioned and echoed back.
+func TestRulesTravelBothWays(t *testing.T) {
+	h := newHarness(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if _, err := h.store.Devices().SetPolicy(ctx, h.device.ID, policy.Policy{
+		Accept: policy.AcceptRules{Countries: []string{"BF"}},
+	}); err != nil {
+		t.Fatalf("SetPolicy: %v", err)
+	}
+
+	stream, ack := h.connect(t, ctx, deviceToken)
+	if ack == nil || !ack.GetAccepted() {
+		t.Fatal("registration failed")
+	}
+	if got := ack.GetPolicy(); got.GetVersion() != 1 || len(got.GetAccept().GetCountries()) != 1 {
+		t.Fatalf("RegisterAck policy = %v, want version 1 with BF", got)
+	}
+
+	edit := &v1.DevicePolicy{Accept: &v1.AcceptRules{Countries: []string{"ci"}, RecipientPattern: `^\+225`}}
+	if err := stream.Send(&v1.DeviceMessage{
+		MessageId:   uuid.NewString(),
+		DeviceToken: deviceToken,
+		Payload:     &v1.DeviceMessage_PolicyUpdate{PolicyUpdate: &v1.PolicyUpdate{Policy: edit}},
+	}); err != nil {
+		t.Fatalf("send PolicyUpdate: %v", err)
+	}
+
+	msg, err := stream.Recv()
+	if err != nil {
+		t.Fatalf("Recv: %v", err)
+	}
+	echo := msg.GetPolicy()
+	if echo.GetVersion() != 2 || len(echo.GetAccept().GetCountries()) != 1 || echo.GetAccept().GetCountries()[0] != "CI" {
+		t.Fatalf("echo = %v, want version 2 with CI", echo)
+	}
+	dev, _ := h.store.Devices().Get(ctx, h.device.ID)
+	if dev.Policy.Version != 2 || dev.Policy.Accept.Pattern != `^\+225` {
+		t.Errorf("stored = %+v", dev.Policy)
+	}
+
+	// Invalid rules are not stored; the phone gets the current ones back.
+	bad := &v1.DevicePolicy{Accept: &v1.AcceptRules{RecipientPattern: "("}}
+	if err := stream.Send(&v1.DeviceMessage{
+		MessageId:   uuid.NewString(),
+		DeviceToken: deviceToken,
+		Payload:     &v1.DeviceMessage_PolicyUpdate{PolicyUpdate: &v1.PolicyUpdate{Policy: bad}},
+	}); err != nil {
+		t.Fatalf("send bad PolicyUpdate: %v", err)
+	}
+	msg, err = stream.Recv()
+	if err != nil {
+		t.Fatalf("Recv: %v", err)
+	}
+	if v := msg.GetPolicy().GetVersion(); v != 2 {
+		t.Errorf("after an invalid edit the phone got version %d, want the current 2", v)
 	}
 }

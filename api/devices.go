@@ -9,7 +9,9 @@ import (
 
 	qrcode "github.com/skip2/go-qrcode"
 
+	"github.com/KGMA74/relaix-server/events"
 	"github.com/KGMA74/relaix-server/hub"
+	"github.com/KGMA74/relaix-server/policy"
 	"github.com/KGMA74/relaix-server/store"
 )
 
@@ -47,6 +49,7 @@ func (s *Server) handleDeleteDevice(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.opts.Logger.Info("device deleted", "device_id", id)
+	s.opts.Events.Publish(events.Event{Type: events.DeviceRemoved, DeviceID: id.String()})
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -87,6 +90,7 @@ func (s *Server) handlePatchDevice(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.opts.Logger.Info("device enabled flag set", "device_id", id, "enabled", *req.Enabled)
+	s.opts.Events.Publish(events.Event{Type: events.DeviceUpdated, DeviceID: id.String()})
 
 	device, err := s.store.Devices().Get(ctx, id)
 	if err != nil {
@@ -122,10 +126,16 @@ type deviceResponse struct {
 	// subscriptionId on POST /send. Empty on a single-SIM phone, or one that
 	// has never registered — PhoneNumber and Carrier above already describe
 	// that case.
-	Sims       []simResponse   `json:"sims,omitempty"`
-	Health     *healthResponse `json:"health,omitempty"`
-	LastSeenAt *string         `json:"lastSeenAt,omitempty"`
-	CreatedAt  string          `json:"createdAt"`
+	Sims   []simResponse   `json:"sims,omitempty"`
+	Health *healthResponse `json:"health,omitempty"`
+	// TimeZone is the zone the phone reports; Policy's windows default to it.
+	TimeZone string        `json:"timeZone,omitempty"`
+	Policy   policy.Policy `json:"policy"`
+	// AvailableNow: the device's own hours are open at this moment (SIM
+	// hours aside). A ready device outside them takes no job.
+	AvailableNow bool    `json:"availableNow"`
+	LastSeenAt   *string `json:"lastSeenAt,omitempty"`
+	CreatedAt    string  `json:"createdAt"`
 }
 
 // simResponse merges a SIM's identity with its latest health, matching how an
@@ -225,16 +235,19 @@ func (s *Server) handleListDevices(w http.ResponseWriter, r *http.Request) {
 		conn, online := live[id]
 
 		resp := deviceResponse{
-			DeviceID:    id,
-			Label:       d.Label,
-			PhoneNumber: d.PhoneNumber,
-			Enabled:     d.Enabled,
-			Connected:   online,
-			Ready:       isReady[id],
-			Model:       d.Model,
-			OSVersion:   d.OSVersion,
-			Carrier:     d.Carrier,
-			CreatedAt:   d.CreatedAt.UTC().Format(time.RFC3339),
+			DeviceID:     id,
+			Label:        d.Label,
+			PhoneNumber:  d.PhoneNumber,
+			Enabled:      d.Enabled,
+			Connected:    online,
+			Ready:        isReady[id],
+			Model:        d.Model,
+			OSVersion:    d.OSVersion,
+			Carrier:      d.Carrier,
+			CreatedAt:    d.CreatedAt.UTC().Format(time.RFC3339),
+			TimeZone:     d.TimeZone,
+			Policy:       d.Policy,
+			AvailableNow: d.Policy.Availability.Open(s.opts.Now(), d.TimeZone),
 		}
 
 		// Prefer the hub's health: it is the live snapshot, while the stored

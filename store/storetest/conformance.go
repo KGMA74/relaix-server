@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/KGMA74/relaix-server/policy"
 	"github.com/KGMA74/relaix-server/store"
 )
 
@@ -100,6 +101,129 @@ func testDevices(t *testing.T, newStore Factory) {
 		}
 		if _, err := s.Devices().Create(ctx, &store.Device{Label: "b"}, "same"); !errors.Is(err, store.ErrConflict) {
 			t.Fatalf("second Create = %v, want ErrConflict", err)
+		}
+	})
+
+	t.Run("hardware hash finds the device and is unique when set", func(t *testing.T) {
+		s := newStore(t)
+		created, err := s.Devices().Create(ctx, &store.Device{Label: "a", HardwareHash: "hw-1"}, "tok-a")
+		if err != nil {
+			t.Fatalf("Create: %v", err)
+		}
+		got, err := s.Devices().GetByHardwareHash(ctx, "hw-1")
+		if err != nil {
+			t.Fatalf("GetByHardwareHash: %v", err)
+		}
+		if got.ID != created.ID || got.HardwareHash != "hw-1" {
+			t.Errorf("resolved %+v, want device %v with its hash", got, created.ID)
+		}
+		if _, err := s.Devices().GetByHardwareHash(ctx, "other"); !errors.Is(err, store.ErrNotFound) {
+			t.Errorf("unknown hash = %v, want ErrNotFound", err)
+		}
+		if _, err := s.Devices().Create(ctx, &store.Device{Label: "b", HardwareHash: "hw-1"}, "tok-b"); !errors.Is(err, store.ErrConflict) {
+			t.Errorf("second device with the same hash = %v, want ErrConflict", err)
+		}
+
+		// Devices from older agents carry no hash, and any number of them
+		// must coexist: the index is unique only where the hash is set.
+		for _, tok := range []string{"tok-c", "tok-d"} {
+			if _, err := s.Devices().Create(ctx, &store.Device{Label: "old"}, tok); err != nil {
+				t.Fatalf("Create without hash: %v", err)
+			}
+		}
+		if _, err := s.Devices().GetByHardwareHash(ctx, ""); !errors.Is(err, store.ErrNotFound) {
+			t.Errorf("empty hash = %v, want ErrNotFound", err)
+		}
+	})
+
+	t.Run("rekey swaps the token, refreshes and re-enables the same device", func(t *testing.T) {
+		s := newStore(t)
+		created, err := s.Devices().Create(ctx, &store.Device{Label: "old", Model: "A1", HardwareHash: "hw"}, "tok-old")
+		if err != nil {
+			t.Fatalf("Create: %v", err)
+		}
+		if err := s.Devices().SetEnabled(ctx, created.ID, false); err != nil {
+			t.Fatalf("SetEnabled: %v", err)
+		}
+
+		got, err := s.Devices().Rekey(ctx, created.ID, &store.Device{Label: "new", Model: "A2"}, "tok-new")
+		if err != nil {
+			t.Fatalf("Rekey: %v", err)
+		}
+		if got.ID != created.ID || got.Label != "new" || got.Model != "A2" || !got.Enabled {
+			t.Errorf("after Rekey: %+v", got)
+		}
+		if got.HardwareHash != "hw" {
+			t.Errorf("Rekey dropped the hardware hash: %q", got.HardwareHash)
+		}
+		if _, err := s.Devices().GetByTokenHash(ctx, "tok-old"); !errors.Is(err, store.ErrNotFound) {
+			t.Errorf("old token after Rekey = %v, want ErrNotFound", err)
+		}
+		if d, err := s.Devices().GetByTokenHash(ctx, "tok-new"); err != nil || d.ID != created.ID {
+			t.Errorf("new token = %v, %v; want device %v", d, err, created.ID)
+		}
+		if _, err := s.Devices().Rekey(ctx, uuid.New(), &store.Device{}, "tok-x"); !errors.Is(err, store.ErrNotFound) {
+			t.Errorf("Rekey unknown = %v, want ErrNotFound", err)
+		}
+	})
+
+	t.Run("policy round-trips and versions, time zone is kept", func(t *testing.T) {
+		s := newStore(t)
+		created, err := s.Devices().Create(ctx, &store.Device{Label: "a", TimeZone: "Africa/Ouagadougou"}, "tok-p")
+		if err != nil {
+			t.Fatalf("Create: %v", err)
+		}
+		if created.Policy.Version != 0 || len(created.Policy.Accept.Countries) != 0 {
+			t.Errorf("new device policy = %+v, want the zero policy", created.Policy)
+		}
+		if created.TimeZone != "Africa/Ouagadougou" {
+			t.Errorf("TimeZone = %q", created.TimeZone)
+		}
+
+		want := policy.Policy{
+			Availability: policy.Availability{Windows: []policy.Window{{Days: []int{1, 2}, Start: 480, End: 1200}}},
+			Accept:       policy.AcceptRules{Countries: []string{"BF"}, Pattern: `^\+226`},
+			Sims:         []policy.SimPolicy{{SubscriptionID: 2, Disabled: true}},
+		}
+		first, err := s.Devices().SetPolicy(ctx, created.ID, want)
+		if err != nil {
+			t.Fatalf("SetPolicy: %v", err)
+		}
+		if first.Version != 1 || first.UpdatedAt == nil {
+			t.Errorf("first SetPolicy: version %d, updatedAt %v", first.Version, first.UpdatedAt)
+		}
+		second, err := s.Devices().SetPolicy(ctx, created.ID, want)
+		if err != nil {
+			t.Fatalf("second SetPolicy: %v", err)
+		}
+		if second.Version != 2 {
+			t.Errorf("second version = %d, want 2", second.Version)
+		}
+
+		got, err := s.Devices().Get(ctx, created.ID)
+		if err != nil {
+			t.Fatalf("Get: %v", err)
+		}
+		p := got.Policy
+		if p.Version != 2 || p.Accept.Pattern != `^\+226` || len(p.Accept.Countries) != 1 ||
+			len(p.Availability.Windows) != 1 || p.Availability.Windows[0].End != 1200 ||
+			len(p.Sims) != 1 || !p.Sims[0].Disabled {
+			t.Errorf("stored policy = %+v", p)
+		}
+
+		if err := s.Devices().UpdateInfo(ctx, created.ID, &store.Device{Label: "a", TimeZone: "Europe/Paris"}); err != nil {
+			t.Fatalf("UpdateInfo: %v", err)
+		}
+		got, _ = s.Devices().Get(ctx, created.ID)
+		if got.TimeZone != "Europe/Paris" {
+			t.Errorf("TimeZone after UpdateInfo = %q", got.TimeZone)
+		}
+		if got.Policy.Version != 2 {
+			t.Error("UpdateInfo touched the policy")
+		}
+
+		if _, err := s.Devices().SetPolicy(ctx, uuid.New(), want); !errors.Is(err, store.ErrNotFound) {
+			t.Errorf("SetPolicy unknown = %v, want ErrNotFound", err)
 		}
 	})
 

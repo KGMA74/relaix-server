@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -49,7 +50,7 @@ func TestMintReturnsPlaintextAndStoresOnlyTheHash(t *testing.T) {
 	// A database dump must not contain anything that can be presented as a
 	// token. Redeeming the stored hash must fail.
 	hashed := token.SHA256{}.Hash(minted.Plaintext)
-	if _, err := s.Enroll(context.Background(), hashed, &store.Device{}); !errors.Is(err, ErrInvalidToken) {
+	if _, err := s.Enroll(context.Background(), hashed, &store.Device{}, ""); !errors.Is(err, ErrInvalidToken) {
 		t.Errorf("the stored hash was accepted as a token: %v", err)
 	}
 }
@@ -85,7 +86,7 @@ func TestEnrollCreatesDeviceAndReturnsToken(t *testing.T) {
 		Label:       "desk phone",
 		PhoneNumber: "+33600000000",
 		Model:       "SM-A536B",
-	})
+	}, "")
 	if err != nil {
 		t.Fatalf("Enroll: %v", err)
 	}
@@ -121,11 +122,11 @@ func TestTokenCannotBeUsedTwice(t *testing.T) {
 		t.Fatalf("mint: %v", err)
 	}
 
-	if _, err := s.Enroll(ctx, minted.Plaintext, &store.Device{Label: "first"}); err != nil {
+	if _, err := s.Enroll(ctx, minted.Plaintext, &store.Device{Label: "first"}, ""); err != nil {
 		t.Fatalf("first Enroll: %v", err)
 	}
 
-	_, err = s.Enroll(ctx, minted.Plaintext, &store.Device{Label: "second"})
+	_, err = s.Enroll(ctx, minted.Plaintext, &store.Device{Label: "second"}, "")
 	if !errors.Is(err, ErrTokenUsed) {
 		t.Fatalf("second Enroll = %v, want ErrTokenUsed", err)
 	}
@@ -162,7 +163,7 @@ func TestConcurrentEnrollmentYieldsOneDevice(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			_, err := s.Enroll(ctx, minted.Plaintext, &store.Device{Label: "racer"})
+			_, err := s.Enroll(ctx, minted.Plaintext, &store.Device{Label: "racer"}, "")
 			mu.Lock()
 			defer mu.Unlock()
 			if err == nil {
@@ -205,7 +206,7 @@ func TestExpiredTokenIsRejected(t *testing.T) {
 
 	now = testNow.Add(time.Hour) // well past the 15 minute TTL
 
-	_, err = s.Enroll(ctx, minted.Plaintext, &store.Device{Label: "late"})
+	_, err = s.Enroll(ctx, minted.Plaintext, &store.Device{Label: "late"}, "")
 	if !errors.Is(err, ErrTokenExpired) {
 		t.Fatalf("Enroll = %v, want ErrTokenExpired", err)
 	}
@@ -228,7 +229,7 @@ func TestUnknownTokenIsRejected(t *testing.T) {
 	st := storetest.New()
 	s := newService(t, st, nil)
 
-	_, err := s.Enroll(context.Background(), "never-minted", &store.Device{})
+	_, err := s.Enroll(context.Background(), "never-minted", &store.Device{}, "")
 	if !errors.Is(err, ErrInvalidToken) {
 		t.Fatalf("Enroll = %v, want ErrInvalidToken", err)
 	}
@@ -238,7 +239,7 @@ func TestEmptyTokenIsRejected(t *testing.T) {
 	st := storetest.New()
 	s := newService(t, st, nil)
 
-	_, err := s.Enroll(context.Background(), "", &store.Device{})
+	_, err := s.Enroll(context.Background(), "", &store.Device{}, "")
 	if !errors.Is(err, ErrInvalidToken) {
 		t.Fatalf("Enroll = %v, want ErrInvalidToken", err)
 	}
@@ -253,7 +254,7 @@ func TestConsumptionRecordsWhichDeviceClaimedTheToken(t *testing.T) {
 	if err != nil {
 		t.Fatalf("mint: %v", err)
 	}
-	enrolled, err := s.Enroll(ctx, minted.Plaintext, &store.Device{Label: "audited"})
+	enrolled, err := s.Enroll(ctx, minted.Plaintext, &store.Device{Label: "audited"}, "")
 	if err != nil {
 		t.Fatalf("Enroll: %v", err)
 	}
@@ -263,4 +264,104 @@ func TestConsumptionRecordsWhichDeviceClaimedTheToken(t *testing.T) {
 	if !errors.Is(err, store.ErrConflict) {
 		t.Fatalf("re-consume = %v (%v), want ErrConflict", err, consumed)
 	}
+}
+
+// The same phone enrolling twice keeps one device: the second enrollment
+// re-keys the first instead of adding a row, and the old token stops working.
+func TestEnrollSameHardwareTakesBackTheDevice(t *testing.T) {
+	ctx := context.Background()
+	st := storetest.New()
+	s := newService(t, st, time.Now)
+
+	first := mustEnroll(t, s, &store.Device{Label: "before reinstall"}, "android-id-1")
+	if first.Reenrolled {
+		t.Fatal("first enrollment reported as a re-enrollment")
+	}
+
+	second := mustEnroll(t, s, &store.Device{Label: "after reinstall"}, "android-id-1")
+	if !second.Reenrolled {
+		t.Error("second enrollment of the same hardware not reported as a re-enrollment")
+	}
+	if second.Device.ID != first.Device.ID {
+		t.Fatalf("got a new device %v, want the existing %v back", second.Device.ID, first.Device.ID)
+	}
+	if second.Device.Label != "after reinstall" {
+		t.Errorf("label = %q, want the fresh description", second.Device.Label)
+	}
+
+	all, err := st.Devices().List(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != 1 {
+		t.Errorf("fleet has %d devices, want 1", len(all))
+	}
+
+	hasher := token.SHA256{}
+	if _, err := st.Devices().GetByTokenHash(ctx, hasher.Hash(first.DeviceToken)); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("old token still authenticates: %v", err)
+	}
+	if _, err := st.Devices().GetByTokenHash(ctx, hasher.Hash(second.DeviceToken)); err != nil {
+		t.Errorf("new token does not authenticate: %v", err)
+	}
+}
+
+func TestEnrollDifferentOrMissingHardwareMakesNewDevices(t *testing.T) {
+	ctx := context.Background()
+	st := storetest.New()
+	s := newService(t, st, time.Now)
+
+	a := mustEnroll(t, s, &store.Device{}, "id-a")
+	b := mustEnroll(t, s, &store.Device{}, "id-b")
+	c := mustEnroll(t, s, &store.Device{}, "")
+	d := mustEnroll(t, s, &store.Device{}, "")
+	ids := map[string]bool{}
+	for _, e := range []*EnrolledDevice{a, b, c, d} {
+		ids[e.Device.ID.String()] = true
+		if e.Reenrolled {
+			t.Errorf("device %v reported as re-enrolled", e.Device.ID)
+		}
+	}
+	if len(ids) != 4 {
+		t.Errorf("got %d distinct devices, want 4", len(ids))
+	}
+	all, _ := st.Devices().List(ctx)
+	if len(all) != 4 {
+		t.Errorf("fleet has %d devices, want 4", len(all))
+	}
+}
+
+// The stored value is a keyed hash: never the id itself, and different under
+// a different key, so a dump cannot be matched against ids gathered elsewhere.
+func TestHardwareHashIsKeyedAndNeverTheID(t *testing.T) {
+	st := storetest.New()
+	a := New(st, token.SHA256{}, Options{HardwareIDKey: []byte("key-a")})
+	b := New(st, token.SHA256{}, Options{HardwareIDKey: []byte("key-b")})
+
+	ha, hb := a.HardwareHash("android-id"), b.HardwareHash("android-id")
+	if ha == "" || ha == "android-id" || strings.Contains(ha, "android-id") {
+		t.Errorf("hash %q leaks the id", ha)
+	}
+	if ha == hb {
+		t.Error("two keys produced the same hash")
+	}
+	if a.HardwareHash("android-id") != ha {
+		t.Error("hash is not stable")
+	}
+	if a.HardwareHash("") != "" {
+		t.Error("an empty id must hash to empty, so it matches nothing")
+	}
+}
+
+func mustEnroll(t *testing.T, s *Service, info *store.Device, hardwareID string) *EnrolledDevice {
+	t.Helper()
+	minted, err := s.MintEnrollmentToken(context.Background())
+	if err != nil {
+		t.Fatalf("mint: %v", err)
+	}
+	got, err := s.Enroll(context.Background(), minted.Plaintext, info, hardwareID)
+	if err != nil {
+		t.Fatalf("Enroll: %v", err)
+	}
+	return got
 }

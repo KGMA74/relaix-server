@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/KGMA74/relaix-server/policy"
 )
 
 // Errors returned across the persistence boundary. Callers match on these with
@@ -62,6 +64,16 @@ type DeviceStore interface {
 	// so it is the one lookup that must stay cheap.
 	GetByTokenHash(ctx context.Context, tokenHash string) (*Device, error)
 
+	// GetByHardwareHash finds the device a handset enrolled as before, from the
+	// HMAC of its hardware id, or returns ErrNotFound.
+	GetByHardwareHash(ctx context.Context, hardwareHash string) (*Device, error)
+
+	// Rekey gives an existing device a new token and the descriptive fields of
+	// d, and re-enables it: the same phone enrolling again keeps its id and
+	// history. The previous token stops authenticating at once. Returns the
+	// updated device, or ErrNotFound.
+	Rekey(ctx context.Context, id uuid.UUID, d *Device, tokenHash string) (*Device, error)
+
 	// List returns all devices, newest first. The fleet is small by nature
 	// (one row per physical phone), so this is deliberately unpaginated.
 	List(ctx context.Context) ([]*Device, error)
@@ -73,6 +85,10 @@ type DeviceStore interface {
 	// Touch records liveness and the latest health snapshot. Called on every
 	// heartbeat, so implementations should keep it to a single statement.
 	Touch(ctx context.Context, id uuid.UUID, h *DeviceHealth, seenAt time.Time) error
+
+	// SetPolicy replaces the device's rules, stamping the next version and the
+	// time, and returns them as stored. ErrNotFound for an unknown device.
+	SetPolicy(ctx context.Context, id uuid.UUID, p policy.Policy) (policy.Policy, error)
 
 	// SetEnabled flips the operator kill switch.
 	SetEnabled(ctx context.Context, id uuid.UUID, enabled bool) error

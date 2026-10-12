@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/KGMA74/relaix-server/policy"
 )
 
 // JobStatus is the lifecycle state of a job. The values match the CHECK
@@ -145,6 +147,19 @@ type Device struct {
 	// Register (a slot changes only on a physical SIM swap, which needs a
 	// reconnect anyway), not on every heartbeat.
 	Sims []SimInfo
+
+	// HardwareHash is the HMAC of the handset's hardware id, which makes one
+	// physical phone one device. Empty for a device enrolled by an agent that
+	// does not send one. Never the hardware id itself.
+	HardwareHash string
+
+	// TimeZone is the IANA zone the phone reports; the default zone for its
+	// availability windows.
+	TimeZone string
+
+	// Policy is when the device takes work and for which recipients. The zero
+	// value restricts nothing.
+	Policy policy.Policy
 
 	// Health is nil for a device that enrolled but has never connected. Nil
 	// rather than a zero value on purpose: an absent report and a report of

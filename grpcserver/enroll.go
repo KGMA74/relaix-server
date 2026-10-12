@@ -8,13 +8,14 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/KGMA74/relaix-server/devices"
+	"github.com/KGMA74/relaix-server/events"
 	v1 "github.com/KGMA74/relaix-server/gen/smsgateway/v1"
 	"github.com/KGMA74/relaix-server/store"
 )
 
 // Enroller is the part of *devices.Service this server uses.
 type Enroller interface {
-	Enroll(ctx context.Context, enrollmentToken string, info *store.Device) (*devices.EnrolledDevice, error)
+	Enroll(ctx context.Context, enrollmentToken string, info *store.Device, hardwareID string) (*devices.EnrolledDevice, error)
 }
 
 // Enroll trades a single-use enrollment token, scanned from a QR code, for a
@@ -31,13 +32,21 @@ func (s *Server) Enroll(ctx context.Context, req *v1.EnrollRequest) (*v1.EnrollR
 
 	info := deviceFromProto(req.GetDeviceInfo())
 
-	enrolled, err := s.enroller.Enroll(ctx, req.GetEnrollmentToken(), info)
+	hardwareID := req.GetDeviceInfo().GetHardwareId()
+	enrolled, err := s.enroller.Enroll(ctx, req.GetEnrollmentToken(), info, hardwareID)
 	if err != nil {
 		return nil, enrollError(err)
 	}
 
 	s.opts.Logger.Info("device enrolled over gRPC",
-		"device_id", enrolled.Device.ID, "label", enrolled.Device.Label)
+		"device_id", enrolled.Device.ID, "label", enrolled.Device.Label, "reenrolled", enrolled.Reenrolled)
+	// What closes the dashboard's QR dialog: the operator sees the phone join
+	// the moment it does, instead of on the next poll.
+	s.opts.Events.Publish(events.Event{
+		Type:       events.DeviceEnrolled,
+		DeviceID:   enrolled.Device.ID.String(),
+		Reenrolled: enrolled.Reenrolled,
+	})
 
 	return &v1.EnrollResponse{
 		DeviceId:    enrolled.Device.ID.String(),

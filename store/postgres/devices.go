@@ -3,10 +3,12 @@ package postgres
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
 
+	"github.com/KGMA74/relaix-server/policy"
 	"github.com/KGMA74/relaix-server/store"
 )
 
@@ -17,7 +19,8 @@ type deviceStore struct{ q querier }
 // another.
 const deviceColumns = `
 	id, label, phone_number, enabled,
-	manufacturer, model, os_version, agent_version, carrier, sim_info,
+	manufacturer, model, os_version, agent_version, carrier, sim_info, hardware_hash,
+	time_zone, policy,
 	battery_level, is_charging, signal_strength, network_type,
 	sim_ready, sent_last_hour, permissions_ok, sim_health, health_reported_at,
 	last_seen_at, created_at, updated_at`
@@ -107,8 +110,9 @@ func (d deviceStore) Create(ctx context.Context, in *store.Device, tokenHash str
 	const q = `
 		INSERT INTO devices (
 			label, phone_number, token_hash, enabled,
-			manufacturer, model, os_version, agent_version, carrier, sim_info
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+			manufacturer, model, os_version, agent_version, carrier, sim_info,
+			hardware_hash, time_zone
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NULLIF($11, ''),$12)
 		RETURNING ` + deviceColumns
 
 	simInfo, err := marshalSimInfo(in.Sims)
@@ -118,8 +122,43 @@ func (d deviceStore) Create(ctx context.Context, in *store.Device, tokenHash str
 	row := d.q.QueryRow(ctx, q,
 		in.Label, in.PhoneNumber, tokenHash, true,
 		in.Manufacturer, in.Model, in.OSVersion, in.AgentVersion, in.Carrier, simInfo,
+		in.HardwareHash, in.TimeZone,
 	)
 	dev, err := scanDevice(row)
+	return dev, translate(err)
+}
+
+// GetByHardwareHash runs once per enrollment, on the partial unique index.
+func (d deviceStore) GetByHardwareHash(ctx context.Context, hardwareHash string) (*store.Device, error) {
+	if hardwareHash == "" {
+		return nil, store.ErrNotFound
+	}
+	dev, err := scanDevice(d.q.QueryRow(ctx,
+		`SELECT `+deviceColumns+` FROM devices WHERE hardware_hash = $1`, hardwareHash))
+	return dev, translate(err)
+}
+
+// Rekey replaces the token in the same statement that refreshes the
+// description, so there is no moment where the row carries the new
+// description under the old credential.
+func (d deviceStore) Rekey(ctx context.Context, id uuid.UUID, in *store.Device, tokenHash string) (*store.Device, error) {
+	const q = `
+		UPDATE devices SET
+			token_hash = $2, enabled = true,
+			label = $3, phone_number = $4, manufacturer = $5, model = $6,
+			os_version = $7, agent_version = $8, carrier = $9, sim_info = $10,
+			time_zone = $11, updated_at = now()
+		WHERE id = $1
+		RETURNING ` + deviceColumns
+
+	simInfo, err := marshalSimInfo(in.Sims)
+	if err != nil {
+		return nil, err
+	}
+	dev, err := scanDevice(d.q.QueryRow(ctx, q, id, tokenHash,
+		in.Label, in.PhoneNumber, in.Manufacturer, in.Model,
+		in.OSVersion, in.AgentVersion, in.Carrier, simInfo, in.TimeZone,
+	))
 	return dev, translate(err)
 }
 
@@ -162,7 +201,7 @@ func (d deviceStore) UpdateInfo(ctx context.Context, id uuid.UUID, in *store.Dev
 		UPDATE devices SET
 			label = $2, phone_number = $3, manufacturer = $4, model = $5,
 			os_version = $6, agent_version = $7, carrier = $8, sim_info = $9,
-			updated_at = now()
+			time_zone = $10, updated_at = now()
 		WHERE id = $1`
 
 	simInfo, err := marshalSimInfo(in.Sims)
@@ -171,7 +210,7 @@ func (d deviceStore) UpdateInfo(ctx context.Context, id uuid.UUID, in *store.Dev
 	}
 	tag, err := d.q.Exec(ctx, q, id,
 		in.Label, in.PhoneNumber, in.Manufacturer, in.Model,
-		in.OSVersion, in.AgentVersion, in.Carrier, simInfo,
+		in.OSVersion, in.AgentVersion, in.Carrier, simInfo, in.TimeZone,
 	)
 	if err != nil {
 		return translate(err)
@@ -237,6 +276,34 @@ func (d deviceStore) Touch(ctx context.Context, id uuid.UUID, h *store.DeviceHea
 	return nil
 }
 
+// SetPolicy bumps the version inside the same statement that writes the
+// document, so two concurrent edits cannot both claim the same version.
+func (d deviceStore) SetPolicy(ctx context.Context, id uuid.UUID, p policy.Policy) (policy.Policy, error) {
+	const q = `
+		UPDATE devices SET
+			policy = $2::jsonb || jsonb_build_object(
+				'version', COALESCE((policy->>'version')::bigint, 0) + 1,
+				'updatedAt', to_jsonb(now())),
+			updated_at = now()
+		WHERE id = $1
+		RETURNING policy`
+
+	p.Version, p.UpdatedAt = 0, nil
+	doc, err := json.Marshal(p)
+	if err != nil {
+		return policy.Policy{}, err
+	}
+	var raw []byte
+	if err := d.q.QueryRow(ctx, q, id, doc).Scan(&raw); err != nil {
+		return policy.Policy{}, translate(err)
+	}
+	var stored policy.Policy
+	if err := json.Unmarshal(raw, &stored); err != nil {
+		return policy.Policy{}, fmt.Errorf("postgres: decode policy: %w", err)
+	}
+	return stored, nil
+}
+
 func (d deviceStore) SetEnabled(ctx context.Context, id uuid.UUID, enabled bool) error {
 	tag, err := d.q.Exec(ctx,
 		`UPDATE devices SET enabled = $2, updated_at = now() WHERE id = $1`, id, enabled)
@@ -282,17 +349,27 @@ func scanDevice(row scanner) (*store.Device, error) {
 		perms      *bool
 		simHealth  []byte
 		reportedAt *time.Time
+		hardware   *string
+		policyDoc  []byte
 	)
 
 	err := row.Scan(
 		&d.ID, &d.Label, &d.PhoneNumber, &d.Enabled,
-		&d.Manufacturer, &d.Model, &d.OSVersion, &d.AgentVersion, &d.Carrier, &simInfo,
+		&d.Manufacturer, &d.Model, &d.OSVersion, &d.AgentVersion, &d.Carrier, &simInfo, &hardware,
+		&d.TimeZone, &policyDoc,
 		&battery, &charging, &signal, &network,
 		&sim, &sentLast, &perms, &simHealth, &reportedAt,
 		&d.LastSeenAt, &d.CreatedAt, &d.UpdatedAt,
 	)
 	if err != nil {
 		return nil, err
+	}
+
+	d.HardwareHash = deref(hardware)
+	if len(policyDoc) > 0 {
+		if err := json.Unmarshal(policyDoc, &d.Policy); err != nil {
+			return nil, fmt.Errorf("postgres: decode policy: %w", err)
+		}
 	}
 
 	d.Sims, err = unmarshalSimInfo(simInfo)

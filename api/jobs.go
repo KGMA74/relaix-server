@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/KGMA74/relaix-server/events"
 	"github.com/KGMA74/relaix-server/store"
 )
 
@@ -134,6 +135,7 @@ func (s *Server) handleSend(w http.ResponseWriter, r *http.Request) {
 
 	for _, c := range created {
 		s.event(ctx, c.ID, store.JobPending, "submitted via api")
+		s.opts.Events.Publish(events.Event{Type: events.JobCreated, JobID: c.ID.String(), Status: string(c.Status)})
 	}
 
 	// 202, not 201: the gateway has accepted responsibility for the message,
@@ -195,6 +197,7 @@ func (s *Server) handleCancelJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.event(ctx, id, store.JobCancelled, "cancelled via api")
+	s.opts.Events.Publish(events.Event{Type: events.JobUpdated, JobID: id.String(), Status: string(store.JobCancelled)})
 
 	job, err := s.store.Jobs().Get(ctx, id)
 	if err != nil {

@@ -38,6 +38,11 @@ type Config struct {
 	// discovering it at 3am from a failed callback is worse than at startup.
 	CallbackSecret string
 
+	// HardwareIDKey keys the HMAC stored in place of each phone's hardware id
+	// (devices.Options.HardwareIDKey). Must not change once phones have
+	// enrolled: a new key makes every phone look new on its next enrollment.
+	HardwareIDKey string
+
 	// PublicURL is the address agents should dial, encoded into enrollment QR
 	// codes.
 	PublicURL string
@@ -105,6 +110,7 @@ func Load(args []string) (Config, error) {
 	fs.StringVar(&cfg.DatabaseURL, "database-url", cfg.DatabaseURL, "Postgres DSN")
 	fs.StringVar(&cfg.APIKey, "api-key", cfg.APIKey, "bearer key for the REST API; empty disables auth")
 	fs.StringVar(&cfg.CallbackSecret, "callback-secret", cfg.CallbackSecret, "HMAC secret for outbound callbacks")
+	fs.StringVar(&cfg.HardwareIDKey, "hardware-id-key", cfg.HardwareIDKey, "HMAC key for stored phone hardware ids; keep it stable")
 	fs.StringVar(&cfg.PublicURL, "public-url", cfg.PublicURL, "address agents should dial, encoded into enrollment QR codes")
 	fs.DurationVar(&cfg.EnrollTokenTTL, "enroll-token-ttl", cfg.EnrollTokenTTL, "lifetime of a minted enrollment token")
 	fs.DurationVar(&cfg.HeartbeatInterval, "heartbeat-interval", cfg.HeartbeatInterval, "heartbeat cadence handed to agents")
@@ -140,6 +146,7 @@ func applyEnv(cfg *Config) error {
 	str("RELAIX_DATABASE_URL", &cfg.DatabaseURL)
 	str("RELAIX_API_KEY", &cfg.APIKey)
 	str("RELAIX_CALLBACK_SECRET", &cfg.CallbackSecret)
+	str("RELAIX_HARDWARE_ID_KEY", &cfg.HardwareIDKey)
 	str("RELAIX_PUBLIC_URL", &cfg.PublicURL)
 	str("RELAIX_LOG_LEVEL", &cfg.LogLevel)
 
@@ -266,6 +273,7 @@ func (c *Config) Redacted() Config {
 	out := *c
 	out.APIKey = redact(c.APIKey)
 	out.CallbackSecret = redact(c.CallbackSecret)
+	out.HardwareIDKey = redact(c.HardwareIDKey)
 	out.DatabaseURL = redactDSN(c.DatabaseURL)
 	return out
 }

@@ -36,6 +36,7 @@ import (
 	"github.com/KGMA74/relaix-server/config"
 	"github.com/KGMA74/relaix-server/db"
 	"github.com/KGMA74/relaix-server/devices"
+	"github.com/KGMA74/relaix-server/events"
 	v1 "github.com/KGMA74/relaix-server/gen/smsgateway/v1"
 	"github.com/KGMA74/relaix-server/grpcserver"
 	"github.com/KGMA74/relaix-server/hub"
@@ -110,19 +111,31 @@ func run(args []string) error {
 
 	hasher := token.SHA256{}
 
+	// Live notifications for the dashboard: published by the gRPC handlers,
+	// the scheduler and the API, read by GET /events.
+	broker := events.New()
+
 	h := hub.New(hub.Options{
 		HeartbeatTTL: cfg.HeartbeatTTL,
 		Logger:       logger,
 	})
 
 	enrollment := devices.New(st, hasher, devices.Options{
-		TokenTTL: cfg.EnrollTokenTTL,
-		Logger:   logger,
+		TokenTTL:      cfg.EnrollTokenTTL,
+		HardwareIDKey: []byte(cfg.HardwareIDKey),
+		Logger:        logger,
 	})
+	if cfg.HardwareIDKey == "" {
+		// Not fatal: one phone still maps to one device. But the stored
+		// values are then a public-key HMAC, which a database dump could
+		// match against hardware ids gathered elsewhere.
+		logger.Warn("no hardware id key configured; phone identifiers are hashed with a public default key")
+	}
 
 	sched := scheduler.New(st, h, scheduler.Options{
 		Interval:  cfg.SchedulerInterval,
 		BatchSize: cfg.SchedulerBatch,
+		Events:    broker,
 		Logger:    logger,
 	})
 
@@ -144,6 +157,7 @@ func run(args []string) error {
 
 	deviceGateway := grpcserver.New(st, h, hasher, grpcserver.Options{
 		HeartbeatInterval: cfg.HeartbeatInterval,
+		Events:            broker,
 		Logger:            logger,
 	}).WithEnroller(enrollment)
 
@@ -159,6 +173,7 @@ func run(args []string) error {
 			APIKey:    cfg.APIKey,
 			PublicURL: cfg.PublicURL,
 			UI:        ui.FS(),
+			Events:    broker,
 			Pinger:    st,
 			Logger:    logger,
 		}).Handler(),
@@ -222,6 +237,9 @@ func run(args []string) error {
 	// scheduler and watcher have already been asked to stop by gctx. The hub
 	// goes last, because closing every outbound channel is how the remaining
 	// stream handlers learn to end.
+	// Event streams never end on their own, and Shutdown waits for every
+	// active request: closing the broker is what lets them return.
+	broker.Close()
 	if err := httpSrv.Shutdown(shutdownCtx); err != nil {
 		logger.Warn("http shutdown", "err", err)
 	}

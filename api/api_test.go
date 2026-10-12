@@ -18,6 +18,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/KGMA74/relaix-server/devices"
+	v1 "github.com/KGMA74/relaix-server/gen/smsgateway/v1"
 	"github.com/KGMA74/relaix-server/hub"
 	"github.com/KGMA74/relaix-server/store"
 	"github.com/KGMA74/relaix-server/store/storetest"
@@ -33,6 +34,7 @@ type fakeHub struct {
 	connected []hub.DeviceState
 	ready     []hub.DeviceState
 	err       error
+	sent      []sentMsg
 }
 
 func (f *fakeHub) ListConnected(context.Context) ([]hub.DeviceState, error) {
@@ -41,6 +43,16 @@ func (f *fakeHub) ListConnected(context.Context) ([]hub.DeviceState, error) {
 
 func (f *fakeHub) ListReady(context.Context) ([]hub.DeviceState, error) {
 	return f.ready, f.err
+}
+
+func (f *fakeHub) Send(_ context.Context, deviceID uuid.UUID, msg *v1.ServerMessage) error {
+	f.sent = append(f.sent, sentMsg{deviceID, msg})
+	return nil
+}
+
+type sentMsg struct {
+	deviceID uuid.UUID
+	msg      *v1.ServerMessage
 }
 
 type harness struct {
@@ -594,7 +606,7 @@ func TestMintedTokenEnrollsADevice(t *testing.T) {
 	}
 	got := decode[enrollTokenResponse](t, rec)
 
-	enrolled, err := h.enroller.Enroll(context.Background(), got.Token, &store.Device{Label: "phone"})
+	enrolled, err := h.enroller.Enroll(context.Background(), got.Token, &store.Device{Label: "phone"}, "")
 	if err != nil {
 		t.Fatalf("the minted token did not enroll: %v", err)
 	}

@@ -13,6 +13,7 @@ import (
 
 	v1 "github.com/KGMA74/relaix-server/gen/smsgateway/v1"
 	"github.com/KGMA74/relaix-server/hub"
+	"github.com/KGMA74/relaix-server/policy"
 	"github.com/KGMA74/relaix-server/store"
 	"github.com/KGMA74/relaix-server/store/storetest"
 )
@@ -526,5 +527,141 @@ func TestRunSurvivesAFailingTick(t *testing.T) {
 	case <-done:
 	case <-time.After(2 * time.Second):
 		t.Fatal("Run did not return after cancellation")
+	}
+}
+
+// --- device rules -----------------------------------------------------------
+
+func seedRuled(st *storetest.Store, p policy.Policy, sims ...store.SimInfo) uuid.UUID {
+	return st.SeedDevice(&store.Device{Enabled: true, Policy: p, Sims: sims}).ID
+}
+
+func TestRulesRouteEachRecipientToADeviceThatAcceptsIt(t *testing.T) {
+	st := storetest.New()
+	bf := seedRuled(st, policy.Policy{Accept: policy.AcceptRules{Countries: []string{"BF"}}})
+	ci := seedRuled(st, policy.Policy{Accept: policy.AcceptRules{Countries: []string{"CI"}}})
+	h := newFakeHub(bf, ci)
+	s := newScheduler(t, st, h, Options{})
+
+	toBF := st.SeedJob(&store.Job{Recipient: "+22670000000", Body: "a", Mode: store.ModeQueued})
+	toCI := st.SeedJob(&store.Job{Recipient: "+22501000000", Body: "b", Mode: store.ModeQueued})
+	if err := s.Tick(context.Background()); err != nil {
+		t.Fatalf("Tick: %v", err)
+	}
+
+	if got := st.JobByID(toBF.ID).AssignedDeviceID; got == nil || *got != bf {
+		t.Errorf("BF job went to %v, want the BF device", got)
+	}
+	if got := st.JobByID(toCI.ID).AssignedDeviceID; got == nil || *got != ci {
+		t.Errorf("CI job went to %v, want the CI device", got)
+	}
+}
+
+// Waiting cannot change a "no" that does not depend on the time.
+func TestRecipientNoDeviceAcceptsFailsAtOnce(t *testing.T) {
+	st := storetest.New()
+	dev := seedRuled(st, policy.Policy{Accept: policy.AcceptRules{Pattern: `^\+226`}})
+	h := newFakeHub(dev)
+	s := newScheduler(t, st, h, Options{})
+
+	job := st.SeedJob(&store.Job{Recipient: "+33600000000", Body: "x", Mode: store.ModeQueued})
+	if err := s.Tick(context.Background()); err != nil {
+		t.Fatalf("Tick: %v", err)
+	}
+	got := st.JobByID(job.ID)
+	if got.Status != store.JobFailed || got.ErrorCode != "no_device_accepts" {
+		t.Errorf("status %q code %q, want failed/no_device_accepts", got.Status, got.ErrorCode)
+	}
+	if h.totalSent() != 0 {
+		t.Error("a job was pushed to a device whose rules refuse it")
+	}
+}
+
+func TestOutsideHoursQueuedWaitsImmediateFails(t *testing.T) {
+	st := storetest.New()
+	// Open only 01:00-02:00 UTC; the scheduler's clock says 12:00 UTC.
+	closed := policy.Policy{Availability: policy.Availability{
+		TimeZone: "UTC",
+		Windows:  []policy.Window{{Start: 60, End: 120}},
+	}}
+	dev := seedRuled(st, closed)
+	h := newFakeHub(dev)
+	noon := time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)
+	s := newScheduler(t, st, h, Options{Now: func() time.Time { return noon }})
+
+	queued := st.SeedJob(&store.Job{Recipient: "+22670000000", Body: "q", Mode: store.ModeQueued})
+	immediate := st.SeedJob(&store.Job{Recipient: "+22670000000", Body: "i", Mode: store.ModeImmediate})
+	if err := s.Tick(context.Background()); err != nil {
+		t.Fatalf("Tick: %v", err)
+	}
+
+	if got := st.JobByID(queued.ID).Status; got != store.JobPending {
+		t.Errorf("queued job status %q, want pending until the window opens", got)
+	}
+	if got := st.JobByID(immediate.ID); got.Status != store.JobFailed || got.ErrorCode != "no_device_available" {
+		t.Errorf("immediate job %q/%q, want failed/no_device_available", got.Status, got.ErrorCode)
+	}
+	if h.totalSent() != 0 {
+		t.Error("a job was pushed outside the device's hours")
+	}
+}
+
+func TestSIMRulesPickTheSIM(t *testing.T) {
+	st := storetest.New()
+	dev := seedRuled(st,
+		policy.Policy{Sims: []policy.SimPolicy{
+			{SubscriptionID: 1, Accept: policy.AcceptRules{Countries: []string{"CI"}}},
+		}},
+		store.SimInfo{SubscriptionID: 1, SlotIndex: 0, IsDefaultSMS: true},
+		store.SimInfo{SubscriptionID: 2, SlotIndex: 1},
+	)
+	h := newFakeHub(dev)
+	s := newScheduler(t, st, h, Options{})
+
+	st.SeedJob(&store.Job{Recipient: "+22670000000", Body: "bf", Mode: store.ModeQueued})
+	if err := s.Tick(context.Background()); err != nil {
+		t.Fatalf("Tick: %v", err)
+	}
+	msgs := h.sentTo(dev)
+	if len(msgs) != 1 {
+		t.Fatalf("sent %d, want 1", len(msgs))
+	}
+	if sub := msgs[0].GetSendSmsJob().GetSubscriptionId(); sub != 2 {
+		t.Errorf("sent from SIM %d, want 2 (the default SIM only takes CI)", sub)
+	}
+}
+
+func TestRequestedDeviceWhoseRulesRefuseFails(t *testing.T) {
+	st := storetest.New()
+	dev := seedRuled(st, policy.Policy{Accept: policy.AcceptRules{Countries: []string{"CI"}}})
+	h := newFakeHub(dev)
+	s := newScheduler(t, st, h, Options{})
+
+	job := st.SeedJob(&store.Job{
+		Recipient: "+22670000000", Body: "x", Mode: store.ModeQueued, RequestedDeviceID: ptr(dev),
+	})
+	if err := s.Tick(context.Background()); err != nil {
+		t.Fatalf("Tick: %v", err)
+	}
+	got := st.JobByID(job.ID)
+	if got.Status != store.JobFailed || got.ErrorCode != "rejected_by_device_rules" {
+		t.Errorf("status %q code %q, want failed/rejected_by_device_rules", got.Status, got.ErrorCode)
+	}
+}
+
+// A disabled device's rules do not count: if only it would accept, nobody will.
+func TestOnlyEnabledDevicesCountAsAccepting(t *testing.T) {
+	st := storetest.New()
+	off := st.SeedDevice(&store.Device{Enabled: false}).ID
+	_ = seedRuled(st, policy.Policy{Accept: policy.AcceptRules{Countries: []string{"CI"}}})
+	h := newFakeHub()
+	s := newScheduler(t, st, h, Options{})
+
+	job := st.SeedJob(&store.Job{Recipient: "+22670000000", Body: "x", Mode: store.ModeQueued})
+	if err := s.Tick(context.Background()); err != nil {
+		t.Fatalf("Tick: %v", err)
+	}
+	if got := st.JobByID(job.ID); got.ErrorCode != "no_device_accepts" {
+		t.Errorf("code %q, want no_device_accepts (the device %v that would accept is disabled)", got.ErrorCode, off)
 	}
 }

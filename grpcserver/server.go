@@ -20,8 +20,10 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"github.com/KGMA74/relaix-server/events"
 	v1 "github.com/KGMA74/relaix-server/gen/smsgateway/v1"
 	"github.com/KGMA74/relaix-server/hub"
+	"github.com/KGMA74/relaix-server/policy"
 	"github.com/KGMA74/relaix-server/store"
 	"github.com/KGMA74/relaix-server/token"
 )
@@ -32,6 +34,7 @@ type Hub interface {
 	Register(ctx context.Context, deviceID uuid.UUID, health *store.DeviceHealth) (*hub.Registration, error)
 	Unregister(ctx context.Context, deviceID, regID uuid.UUID, reason string) error
 	Heartbeat(ctx context.Context, deviceID, regID uuid.UUID, health *store.DeviceHealth) error
+	Send(ctx context.Context, deviceID uuid.UUID, msg *v1.ServerMessage) error
 }
 
 // Options configures the server.
@@ -41,6 +44,10 @@ type Options struct {
 	// trade-off between detection latency and battery is an operator's call.
 	// Default 30s.
 	HeartbeatInterval time.Duration
+
+	// Events receives connection, health and job changes for the dashboard's
+	// live stream. Nil publishes nowhere.
+	Events *events.Broker
 
 	Now    func() time.Time
 	Logger *slog.Logger
@@ -137,11 +144,15 @@ func (s *Server) Connect(stream v1.DeviceGateway_ConnectServer) error {
 			log.Warn("unregister failed", "err", err)
 		}
 		log.Info("device disconnected")
+		s.opts.Events.Publish(events.Event{Type: events.DeviceDisconnected, DeviceID: device.ID.String()})
 	}()
 
 	if err := s.persistRegister(ctx, device, reg, health); err != nil {
 		log.Warn("could not persist registration", "err", err)
 	}
+	// After persisting, so a dashboard that refetches on this event reads the
+	// fresh description and health, not the previous connection's.
+	s.opts.Events.Publish(events.Event{Type: events.DeviceConnected, DeviceID: device.ID.String()})
 
 	stale, err := s.reconcile(ctx, device.ID, reg.GetPendingJobIds())
 	if err != nil {
@@ -160,6 +171,7 @@ func (s *Server) Connect(stream v1.DeviceGateway_ConnectServer) error {
 				Accepted:                 true,
 				HeartbeatIntervalSeconds: int32(s.opts.HeartbeatInterval.Seconds()),
 				StaleJobIds:              stale,
+				Policy:                   policy.ToProto(device.Policy),
 			},
 		},
 	}
@@ -219,6 +231,11 @@ func (s *Server) readLoop(
 			s.onJobAck(ctx, device, payload.JobAck, log)
 		case *v1.DeviceMessage_JobResult:
 			s.onJobResult(ctx, device, payload.JobResult, log)
+		case *v1.DeviceMessage_PolicyUpdate:
+			s.onPolicyUpdate(ctx, device, payload.PolicyUpdate, log)
+		case *v1.DeviceMessage_Leave:
+			// Ends the stream: the device it belonged to no longer exists.
+			return s.onLeave(ctx, device, payload.Leave, log)
 		case *v1.DeviceMessage_Register:
 			// A second Register on an open stream is a protocol error: the
 			// agent should have opened a new one.
@@ -325,7 +342,60 @@ func (s *Server) onHeartbeat(ctx context.Context, device *store.Device, reg *hub
 	}
 	if err := s.store.Devices().Touch(ctx, device.ID, health, now); err != nil {
 		log.Warn("could not persist heartbeat", "err", err)
+		return
 	}
+	s.opts.Events.Publish(events.Event{Type: events.DeviceHealth, DeviceID: device.ID.String()})
+}
+
+// onPolicyUpdate stores rules edited on the phone and sends the stored version
+// back, which is the phone's confirmation and its new copy. Rules that do not
+// validate are not stored; the phone is sent the current ones instead, so its
+// copy never drifts from what the scheduler enforces.
+func (s *Server) onPolicyUpdate(ctx context.Context, device *store.Device, u *v1.PolicyUpdate, log *slog.Logger) {
+	proposed := policy.Normalize(policy.FromProto(u.GetPolicy()))
+	current := device.Policy
+	if err := policy.Validate(proposed); err != nil {
+		log.Warn("rejected rules edited on the device", "err", err)
+		if d, err := s.store.Devices().Get(ctx, device.ID); err == nil {
+			current = d.Policy
+		}
+	} else {
+		stored, err := s.store.Devices().SetPolicy(ctx, device.ID, proposed)
+		if err != nil {
+			log.Warn("could not store rules edited on the device", "err", err)
+			return
+		}
+		current = stored
+		log.Info("rules edited on the device", "version", stored.Version)
+		s.opts.Events.Publish(events.Event{Type: events.DeviceUpdated, DeviceID: device.ID.String()})
+	}
+
+	msg := &v1.ServerMessage{
+		MessageId: uuid.NewString(),
+		SentAt:    timestamppb.New(s.opts.Now()),
+		Payload:   &v1.ServerMessage_Policy{Policy: policy.ToProto(current)},
+	}
+	if err := s.hub.Send(ctx, device.ID, msg); err != nil {
+		// Not reading, or gone: it gets the rules again in its next
+		// RegisterAck.
+		log.Warn("could not send rules to the device", "err", err)
+	}
+}
+
+// onLeave retires a device at its own request: the operator forgot the
+// enrollment on the phone, so the phone tells the fleet before dropping its
+// token. The same as DELETE /devices/{id} — jobs keep their history, the token
+// stops authenticating with the row. Returning nil closes the stream cleanly;
+// the agent is not going to reconnect with a token that no longer exists.
+func (s *Server) onLeave(ctx context.Context, device *store.Device, leave *v1.Leave, log *slog.Logger) error {
+	err := s.store.Devices().Delete(ctx, device.ID)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		log.Warn("could not retire leaving device", "err", err)
+		return status.Error(codes.Internal, "could not retire device")
+	}
+	log.Info("device left the fleet", "reason", leave.GetReason())
+	s.opts.Events.Publish(events.Event{Type: events.DeviceRemoved, DeviceID: device.ID.String()})
+	return nil
 }
 
 func (s *Server) onJobAck(ctx context.Context, device *store.Device, ack *v1.JobAck, log *slog.Logger) {
@@ -417,6 +487,11 @@ func (s *Server) event(ctx context.Context, jobID uuid.UUID, status store.JobSta
 	if err := s.store.Events().Append(ctx, e); err != nil {
 		s.opts.Logger.Warn("could not record job event", "job_id", jobID, "err", err)
 	}
+	ev := events.Event{Type: events.JobUpdated, JobID: jobID.String(), Status: string(status)}
+	if deviceID != nil {
+		ev.DeviceID = deviceID.String()
+	}
+	s.opts.Events.Publish(ev)
 }
 
 // ---------------------------------------------------------------------------
@@ -466,6 +541,7 @@ func deviceFromProto(i *v1.DeviceInfo) *store.Device {
 		AgentVersion: i.GetAgentVersion(),
 		Carrier:      i.GetCarrier(),
 		Sims:         simInfoFromProto(i.GetSims()),
+		TimeZone:     i.GetTimeZone(),
 	}
 }
 

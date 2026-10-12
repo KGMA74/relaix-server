@@ -18,6 +18,8 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/KGMA74/relaix-server/devices"
+	"github.com/KGMA74/relaix-server/events"
+	v1 "github.com/KGMA74/relaix-server/gen/smsgateway/v1"
 	"github.com/KGMA74/relaix-server/hub"
 	"github.com/KGMA74/relaix-server/store"
 )
@@ -26,6 +28,7 @@ import (
 type Hub interface {
 	ListConnected(ctx context.Context) ([]hub.DeviceState, error)
 	ListReady(ctx context.Context) ([]hub.DeviceState, error)
+	Send(ctx context.Context, deviceID uuid.UUID, msg *v1.ServerMessage) error
 }
 
 // Enroller mints enrollment tokens.
@@ -52,6 +55,10 @@ type Options struct {
 	// out entirely, which is what the API tests want: they exercise the API,
 	// not whatever front-end build happens to be on disk.
 	UI fs.FS
+
+	// Events feeds GET /events. Nil leaves the stream open but silent, which
+	// is all the API tests that do not exercise it need.
+	Events *events.Broker
 
 	// Pinger backs the readiness probe. Nil makes /readyz answer purely on the
 	// process being up.
@@ -108,8 +115,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /devices", s.handleListDevices)
 	mux.HandleFunc("PATCH /devices/{id}", s.handlePatchDevice)
 	mux.HandleFunc("DELETE /devices/{id}", s.handleDeleteDevice)
+	mux.HandleFunc("PUT /devices/{id}/policy", s.handlePutPolicy)
+	mux.HandleFunc("GET /countries", s.handleCountries)
 	mux.HandleFunc("POST /admin/devices/enroll-token", s.handleEnrollToken)
 	mux.HandleFunc("GET /stats", s.handleStats)
+	mux.HandleFunc("GET /events", s.handleEvents)
 
 	if s.opts.UI != nil {
 		mux.Handle("GET "+uiPrefix, s.dashboard(s.opts.UI))
@@ -221,6 +231,13 @@ func (r *statusRecorder) WriteHeader(code int) {
 func (r *statusRecorder) Write(b []byte) (int, error) {
 	r.written = true
 	return r.ResponseWriter.Write(b)
+}
+
+// Unwrap exposes the underlying writer to http.ResponseController. Without it
+// the event stream could not flush through the access log, and every event
+// would sit in a buffer until the connection closed.
+func (r *statusRecorder) Unwrap() http.ResponseWriter {
+	return r.ResponseWriter
 }
 
 // ---------------------------------------------------------------------------

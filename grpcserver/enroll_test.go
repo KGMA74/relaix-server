@@ -232,7 +232,7 @@ func TestEnrollRejectsExpiredToken(t *testing.T) {
 	}
 	now = testNow.Add(time.Hour)
 
-	_, err = svc.Enroll(context.Background(), minted.Plaintext, &store.Device{Label: "late"})
+	_, err = svc.Enroll(context.Background(), minted.Plaintext, &store.Device{Label: "late"}, "")
 	if got := enrollError(err); status.Code(got) != codes.PermissionDenied {
 		t.Fatalf("code = %v, want PermissionDenied", status.Code(got))
 	}

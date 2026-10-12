@@ -321,6 +321,30 @@ func (h *Hub) SendJob(ctx context.Context, deviceID uuid.UUID, msg *v1.ServerMes
 	return sendErr
 }
 
+// Send queues a message that is not a job — new rules, for instance — for a
+// connected device. Like SendJob it never blocks, but a full buffer does not
+// mark the device busy: that flag steers job placement, and a control message
+// that could not be queued says nothing about whether a job could.
+func (h *Hub) Send(ctx context.Context, deviceID uuid.UUID, msg *v1.ServerMessage) error {
+	var sendErr error
+	err := h.do(ctx, func(devices map[uuid.UUID]*entry) {
+		e, ok := devices[deviceID]
+		if !ok {
+			sendErr = ErrNotConnected
+			return
+		}
+		select {
+		case e.out <- msg:
+		default:
+			sendErr = ErrDeviceBusy
+		}
+	})
+	if err != nil {
+		return err
+	}
+	return sendErr
+}
+
 // Get returns a snapshot of one connected device.
 func (h *Hub) Get(ctx context.Context, deviceID uuid.UUID) (DeviceState, error) {
 	var (

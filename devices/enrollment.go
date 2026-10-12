@@ -9,6 +9,9 @@ package devices
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -39,6 +42,14 @@ type Options struct {
 	// a QR left on a screen or in a chat log stops being a way in.
 	TokenTTL time.Duration
 
+	// HardwareIDKey keys the HMAC that turns a handset's hardware id into the
+	// value stored with its device. Keyed rather than a bare hash so a
+	// database dump cannot be matched against hardware ids collected
+	// elsewhere. It must stay the same across restarts: a new key makes every
+	// phone look new on its next enrollment. Empty falls back to a fixed
+	// public key — uniqueness still works, the dump protection does not.
+	HardwareIDKey []byte
+
 	Now    func() time.Time
 	Logger *slog.Logger
 }
@@ -46,6 +57,9 @@ type Options struct {
 func (o *Options) withDefaults() {
 	if o.TokenTTL <= 0 {
 		o.TokenTTL = 15 * time.Minute
+	}
+	if len(o.HardwareIDKey) == 0 {
+		o.HardwareIDKey = []byte(fallbackHardwareIDKey)
 	}
 	if o.Now == nil {
 		o.Now = time.Now
@@ -102,9 +116,35 @@ type EnrolledDevice struct {
 	// DeviceToken is the long-lived credential the agent puts on every message.
 	// Returned exactly once; the database holds only its hash.
 	DeviceToken string
+
+	// Reenrolled is true when the phone was already in the fleet and took
+	// its device back instead of creating one.
+	Reenrolled bool
+}
+
+// fallbackHardwareIDKey is used when no key is configured. Public, so it only
+// gives domain separation; see Options.HardwareIDKey.
+const fallbackHardwareIDKey = "relaix/hardware-id/v1"
+
+// HardwareHash is the value stored for a handset's hardware id: hex
+// HMAC-SHA256 under the configured key. Empty in, empty out — an agent that
+// sends no id gets no identity to match on.
+func (s *Service) HardwareHash(hardwareID string) string {
+	if hardwareID == "" {
+		return ""
+	}
+	mac := hmac.New(sha256.New, s.opts.HardwareIDKey)
+	mac.Write([]byte(hardwareID))
+	return hex.EncodeToString(mac.Sum(nil))
 }
 
 // Enroll trades an enrollment token for a device and its long-lived token.
+//
+// hardwareID is the handset's stable identifier, or empty. When a device with
+// the same one already exists, that device is re-keyed — new token, fresh
+// description, enabled again — rather than a second one created: one phone,
+// one entry, its id and send history intact. The previous token stops working
+// at once, which is what a re-enrollment means.
 //
 // The token consumption and the device creation happen in one transaction. They
 // have to: consuming without creating burns a token and leaves the operator
@@ -115,7 +155,7 @@ type EnrolledDevice struct {
 // The device is created first so that consumption can record which device
 // claimed the token, giving an audit trail from "who minted it" to "which phone
 // joined". If consumption then fails, the transaction takes the device with it.
-func (s *Service) Enroll(ctx context.Context, enrollmentToken string, info *store.Device) (*EnrolledDevice, error) {
+func (s *Service) Enroll(ctx context.Context, enrollmentToken string, info *store.Device, hardwareID string) (*EnrolledDevice, error) {
 	if enrollmentToken == "" {
 		return nil, ErrInvalidToken
 	}
@@ -128,30 +168,49 @@ func (s *Service) Enroll(ctx context.Context, enrollmentToken string, info *stor
 	now := s.opts.Now()
 	tokenHash := s.hasher.Hash(enrollmentToken)
 
-	var device *store.Device
+	hardwareHash := s.HardwareHash(hardwareID)
+
+	var (
+		device     *store.Device
+		reenrolled bool
+	)
 	err = s.store.WithTx(ctx, func(tx store.Store) error {
 		candidate := *info
 		candidate.Enabled = true
 		candidate.CreatedAt = now
+		candidate.HardwareHash = hardwareHash
 
-		created, err := tx.Devices().Create(ctx, &candidate, s.hasher.Hash(deviceToken))
-		if err != nil {
-			return fmt.Errorf("create device: %w", err)
+		var target *store.Device
+		existing, err := tx.Devices().GetByHardwareHash(ctx, hardwareHash)
+		switch {
+		case err == nil:
+			target, err = tx.Devices().Rekey(ctx, existing.ID, &candidate, s.hasher.Hash(deviceToken))
+			if err != nil {
+				return fmt.Errorf("rekey device: %w", err)
+			}
+			reenrolled = true
+		case errors.Is(err, store.ErrNotFound):
+			target, err = tx.Devices().Create(ctx, &candidate, s.hasher.Hash(deviceToken))
+			if err != nil {
+				return fmt.Errorf("create device: %w", err)
+			}
+		default:
+			return fmt.Errorf("look up hardware id: %w", err)
 		}
 
-		if _, err := tx.Enrollments().Consume(ctx, tokenHash, created.ID, now); err != nil {
+		if _, err := tx.Enrollments().Consume(ctx, tokenHash, target.ID, now); err != nil {
 			return err
 		}
 
-		device = created
+		device = target
 		return nil
 	})
 	if err != nil {
 		return nil, translate(err)
 	}
 
-	s.opts.Logger.Info("device enrolled", "device_id", device.ID, "label", device.Label)
-	return &EnrolledDevice{Device: device, DeviceToken: deviceToken}, nil
+	s.opts.Logger.Info("device enrolled", "device_id", device.ID, "label", device.Label, "reenrolled", reenrolled)
+	return &EnrolledDevice{Device: device, DeviceToken: deviceToken, Reenrolled: reenrolled}, nil
 }
 
 // translate turns store errors into this package's vocabulary, so callers do

@@ -19,8 +19,10 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/KGMA74/relaix-server/events"
 	v1 "github.com/KGMA74/relaix-server/gen/smsgateway/v1"
 	"github.com/KGMA74/relaix-server/hub"
+	"github.com/KGMA74/relaix-server/policy"
 	"github.com/KGMA74/relaix-server/store"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -49,6 +51,10 @@ type Options struct {
 	// reconnect is normal; this bounds a job no device can stomach.
 	MaxAttempts int
 
+	// Events receives job status changes for the dashboard's live stream.
+	// Nil publishes nowhere.
+	Events *events.Broker
+
 	Now    func() time.Time
 	Logger *slog.Logger
 }
@@ -76,6 +82,13 @@ type Scheduler struct {
 	store store.Store
 	hub   Hub
 	opts  Options
+
+	// held collects the events of the tick's transaction, published only once
+	// it commits: announced earlier, a dashboard refetching on them could read
+	// the state from before the change, and on a rollback they would announce
+	// a change that never happened. Touched only by Tick, which never runs
+	// concurrently with itself.
+	held []events.Event
 
 	// rr rotates the starting point in the ready list from tick to tick, so
 	// load spreads across the fleet instead of always landing on whichever
@@ -118,6 +131,52 @@ func (s *Scheduler) Run(ctx context.Context) error {
 type dispatch struct {
 	job      *store.Job
 	deviceID uuid.UUID
+	// subscriptionID is the SIM the device's rules picked, or 0 to leave the
+	// job's own choice (or the phone's default) alone.
+	subscriptionID int32
+}
+
+// fleet is the tick's view of every device's rules, read once per tick: the
+// hub knows who is ready, only the store knows their policies.
+type fleet map[uuid.UUID]*store.Device
+
+// policyFor returns a device's rules and what they need to know about it. A
+// device the store does not know — gone since the hub listed it — has the
+// zero policy, which restricts nothing.
+func (f fleet) policyFor(id uuid.UUID) (policy.Policy, policy.Device) {
+	d, ok := f[id]
+	if !ok {
+		return policy.Policy{}, policy.Device{}
+	}
+	pd := policy.Device{TimeZone: d.TimeZone}
+	// Default SIM first: when several may send, the one the phone's owner
+	// chose as default is the least surprising.
+	for _, sim := range d.Sims {
+		if sim.IsDefaultSMS {
+			pd.Sims = append([]int32{sim.SubscriptionID}, pd.Sims...)
+		} else {
+			pd.Sims = append(pd.Sims, sim.SubscriptionID)
+		}
+	}
+	return d.Policy, pd
+}
+
+// anyAcceptsEver reports whether some enabled device's rules would ever take a
+// job for recipient. An empty fleet answers yes: a phone not yet enrolled may
+// still come, and the job keeps waiting for it as it always did.
+func (f fleet) anyAcceptsEver(recipient string) bool {
+	enabled := 0
+	for id, d := range f {
+		if !d.Enabled {
+			continue
+		}
+		enabled++
+		p, pd := f.policyFor(id)
+		if p.AcceptsEver(recipient, pd, 0) {
+			return true
+		}
+	}
+	return enabled == 0
 }
 
 // Tick runs one pass. Exported so tests can drive it directly instead of
@@ -137,8 +196,17 @@ func (s *Scheduler) Tick(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	all, err := s.store.Devices().List(ctx)
+	if err != nil {
+		return err
+	}
+	devices := make(fleet, len(all))
+	for _, d := range all {
+		devices[d.ID] = d
+	}
 
 	var pending []dispatch
+	s.held = s.held[:0]
 	err = s.store.WithTx(ctx, func(tx store.Store) error {
 		jobs, err := tx.Jobs().ClaimSchedulable(ctx, now, s.opts.BatchSize)
 		if err != nil {
@@ -150,7 +218,7 @@ func (s *Scheduler) Tick(ctx context.Context) error {
 		used := make(map[uuid.UUID]int, len(ready))
 
 		for _, job := range jobs {
-			d, ok := s.decide(ctx, tx, job, ready, used, now)
+			d, sub, ok := s.decide(ctx, tx, job, ready, devices, used, now)
 			if !ok {
 				continue
 			}
@@ -165,39 +233,48 @@ func (s *Scheduler) Tick(ctx context.Context) error {
 			}
 			used[d]++
 			s.event(ctx, tx, job.ID, store.JobAssigned, &d, "assigned by scheduler")
-			pending = append(pending, dispatch{job: job, deviceID: d})
+			pending = append(pending, dispatch{job: job, deviceID: d, subscriptionID: sub})
 		}
 		return nil
 	})
 	if err != nil {
 		return err
 	}
+	for _, e := range s.held {
+		s.opts.Events.Publish(e)
+	}
 
 	s.push(ctx, pending, now)
 	return nil
 }
 
-// decide picks a device for one job, or resolves the job if it cannot be sent
-// at all. It reports whether a device was found.
+// decide picks a device — and, when its rules care, a SIM — for one job, or
+// resolves the job if it cannot be sent at all. It reports whether a device
+// was found.
+//
+// Device rules split refusals in two. A recipient no rule will ever accept
+// fails the job at once: waiting would only delay the same answer. A device
+// outside its hours is "not now", and a queued job waits for it.
 func (s *Scheduler) decide(
 	ctx context.Context,
 	tx store.Store,
 	job *store.Job,
 	ready []hub.DeviceState,
+	devices fleet,
 	used map[uuid.UUID]int,
 	now time.Time,
-) (uuid.UUID, bool) {
+) (uuid.UUID, int32, bool) {
 	// Expiry beats everything: a job past its deadline must not be sent even if
 	// a device is free. Late delivery of a time-sensitive message is worse than
 	// none at all.
 	if job.Expired(now) {
 		s.fail(ctx, tx, job, "expired", "job expired before a device was available", now)
-		return uuid.Nil, false
+		return uuid.Nil, 0, false
 	}
 
 	if job.Attempts >= s.opts.MaxAttempts {
 		s.fail(ctx, tx, job, "too_many_attempts", "exceeded maximum dispatch attempts", now)
-		return uuid.Nil, false
+		return uuid.Nil, 0, false
 	}
 
 	// Explicit selection. A caller naming a device usually means a specific
@@ -205,29 +282,61 @@ func (s *Scheduler) decide(
 	// another device would be wrong in a way the caller cannot detect.
 	if job.RequestedDeviceID != nil {
 		want := *job.RequestedDeviceID
-		for _, d := range ready {
-			if d.DeviceID == want {
-				return want, true
+		var requestedSub int32
+		if job.SubscriptionID != nil {
+			requestedSub = *job.SubscriptionID
+		}
+		p, pd := devices.policyFor(want)
+		choice := p.Choose(now, job.Recipient, pd, requestedSub)
+		if choice.Never {
+			s.fail(ctx, tx, job, "rejected_by_device_rules",
+				"the requested device's rules do not accept this recipient", now)
+			return uuid.Nil, 0, false
+		}
+		if choice.OK {
+			for _, d := range ready {
+				if d.DeviceID == want {
+					return want, choice.SubscriptionID, true
+				}
 			}
 		}
 		if job.Mode == store.ModeImmediate {
-			s.fail(ctx, tx, job, "device_unavailable",
-				"requested device is not ready and mode is immediate", now)
+			reason := "requested device is not ready and mode is immediate"
+			if !choice.OK {
+				reason = "requested device is outside its availability hours and mode is immediate"
+			}
+			s.fail(ctx, tx, job, "device_unavailable", reason, now)
 		}
 		// Queued: leave it pending and try again next tick.
-		return uuid.Nil, false
+		return uuid.Nil, 0, false
 	}
 
-	// Automatic selection, spreading load across the fleet.
-	if d, ok := s.pick(ready, used); ok {
-		return d, true
+	if !devices.anyAcceptsEver(job.Recipient) {
+		s.fail(ctx, tx, job, "no_device_accepts",
+			"no device's rules accept this recipient", now)
+		return uuid.Nil, 0, false
+	}
+
+	// Automatic selection among the ready devices whose rules take this job
+	// now, spreading load across them.
+	eligible := make([]hub.DeviceState, 0, len(ready))
+	subs := make(map[uuid.UUID]int32, len(ready))
+	for _, d := range ready {
+		p, pd := devices.policyFor(d.DeviceID)
+		if c := p.Choose(now, job.Recipient, pd, 0); c.OK {
+			eligible = append(eligible, d)
+			subs[d.DeviceID] = c.SubscriptionID
+		}
+	}
+	if d, ok := s.pick(eligible, used); ok {
+		return d, subs[d], true
 	}
 
 	if job.Mode == store.ModeImmediate {
 		s.fail(ctx, tx, job, "no_device_available",
-			"no ready device and mode is immediate", now)
+			"no ready device whose rules accept this recipient now, and mode is immediate", now)
 	}
-	return uuid.Nil, false
+	return uuid.Nil, 0, false
 }
 
 // pick chooses the least-loaded ready device, starting from a rotating offset
@@ -259,7 +368,7 @@ func (s *Scheduler) push(ctx context.Context, pending []dispatch, now time.Time)
 			MessageId: uuid.NewString(),
 			SentAt:    timestamppb.New(now),
 			Payload: &v1.ServerMessage_SendSmsJob{
-				SendSmsJob: toProto(p.job),
+				SendSmsJob: toProto(p.job, p.subscriptionID),
 			},
 		}
 
@@ -311,10 +420,22 @@ func (s *Scheduler) event(ctx context.Context, st store.Store, jobID uuid.UUID, 
 	if err := st.Events().Append(ctx, e); err != nil {
 		s.opts.Logger.Warn("could not record job event", "job_id", jobID, "err", err)
 	}
+
+	ev := events.Event{Type: events.JobUpdated, JobID: jobID.String(), Status: string(status)}
+	if deviceID != nil {
+		ev.DeviceID = deviceID.String()
+	}
+	if st == s.store {
+		s.opts.Events.Publish(ev)
+	} else {
+		// Inside the tick's transaction: held until it commits.
+		s.held = append(s.held, ev)
+	}
 }
 
-// toProto converts a job to the message pushed to a device.
-func toProto(j *store.Job) *v1.SendSmsJob {
+// toProto converts a job to the message pushed to a device. sub, when
+// non-zero, is the SIM the device's rules chose, and overrides the job's.
+func toProto(j *store.Job, sub int32) *v1.SendSmsJob {
 	msg := &v1.SendSmsJob{
 		JobId:     j.ID.String(),
 		Recipient: j.Recipient,
@@ -326,6 +447,9 @@ func toProto(j *store.Job) *v1.SendSmsJob {
 	}
 	if j.SubscriptionID != nil {
 		msg.SubscriptionId = *j.SubscriptionID
+	}
+	if sub != 0 {
+		msg.SubscriptionId = sub
 	}
 	// Left at zero otherwise, which the contract defines as "the handset's
 	// default SMS subscription" — the behaviour every job had before the field
