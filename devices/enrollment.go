@@ -52,9 +52,31 @@ type Options struct {
 	// public key — uniqueness still works, the dump protection does not.
 	HardwareIDKey []byte
 
+	// Guard may refuse a phone joining an account. Nil admits every one.
+	Guard Guard
+
 	Now    func() time.Time
 	Logger *slog.Logger
 }
+
+// Guard decides whether an account may take on another phone: a cap on its
+// devices, an account that is suspended.
+type Guard interface {
+	// AllowMint is asked before an enrollment token is minted for account,
+	// so the operator learns at once rather than after scanning.
+	AllowMint(ctx context.Context, account uuid.UUID) error
+
+	// AllowEnroll is asked inside the enrollment transaction, before the
+	// phone joins account. rejoining is true for a phone the account already
+	// has, enrolling again: it adds nothing to count.
+	AllowEnroll(ctx context.Context, tx store.Store, account uuid.UUID, rejoining bool) error
+}
+
+// RefusedError is how a Guard says no. Its reason is shown to whoever asked —
+// the operator minting a token, the phone enrolling — so it says what to do.
+type RefusedError struct{ Reason string }
+
+func (e *RefusedError) Error() string { return "devices: refused: " + e.Reason }
 
 func (o *Options) withDefaults() {
 	if o.TokenTTL <= 0 {
@@ -97,6 +119,12 @@ type MintedToken struct {
 // MintEnrollmentToken creates a single-use token. The device that redeems it
 // will belong to accountID (zero: the default account).
 func (s *Service) MintEnrollmentToken(ctx context.Context, accountID uuid.UUID) (*MintedToken, error) {
+	if s.opts.Guard != nil {
+		if err := s.opts.Guard.AllowMint(ctx, store.AccountOrDefault(accountID)); err != nil {
+			return nil, err
+		}
+	}
+
 	plaintext, err := token.Generate()
 	if err != nil {
 		return nil, err
@@ -194,6 +222,12 @@ func (s *Service) Enroll(ctx context.Context, enrollmentToken string, info *stor
 
 		var target *store.Device
 		existing, err := tx.Devices().GetByHardwareHash(ctx, hardwareHash)
+		if s.opts.Guard != nil && (err == nil || errors.Is(err, store.ErrNotFound)) {
+			rejoining := err == nil && existing.AccountID == tok.AccountID
+			if gerr := s.opts.Guard.AllowEnroll(ctx, tx, tok.AccountID, rejoining); gerr != nil {
+				return gerr
+			}
+		}
 		switch {
 		case err == nil:
 			target, err = tx.Devices().Rekey(ctx, existing.ID, &candidate, s.hasher.Hash(deviceToken))

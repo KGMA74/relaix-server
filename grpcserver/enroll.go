@@ -61,7 +61,11 @@ func (s *Server) Enroll(ctx context.Context, req *v1.EnrollRequest) (*v1.EnrollR
 // message. An agent holding a bad QR can do nothing different about any of
 // them — it must ask for a new one — while the operator reads the reason in the
 // server log, where it is not something an unauthenticated caller can probe for.
+// A guard's refusal is the exception: its reason is meant for the phone,
+// and FailedPrecondition says the token is fine but the account cannot take
+// another device until something changes.
 func enrollError(err error) error {
+	var refused *devices.RefusedError
 	switch {
 	case errors.Is(err, devices.ErrInvalidToken):
 		return status.Error(codes.PermissionDenied, "invalid enrollment token")
@@ -69,6 +73,8 @@ func enrollError(err error) error {
 		return status.Error(codes.PermissionDenied, "enrollment token expired")
 	case errors.Is(err, devices.ErrTokenUsed):
 		return status.Error(codes.PermissionDenied, "enrollment token already used")
+	case errors.As(err, &refused):
+		return status.Error(codes.FailedPrecondition, refused.Reason)
 	default:
 		return status.Errorf(codes.Internal, "enroll: %v", err)
 	}

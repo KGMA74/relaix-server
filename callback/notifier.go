@@ -24,6 +24,8 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/KGMA74/relaix-server/store"
 )
 
@@ -68,6 +70,11 @@ type Payload struct {
 type Options struct {
 	// Secret signs every callback. Required.
 	Secret []byte
+
+	// SecretFor, when set, gives an account its own signing secret, so one
+	// customer cannot forge callbacks to another. An empty result falls back
+	// to Secret; an error is retried like a failed delivery.
+	SecretFor func(ctx context.Context, account uuid.UUID) ([]byte, error)
 
 	// Timeout bounds one attempt. Default 10s: long enough for a slow
 	// receiver, short enough that one hung endpoint cannot hold a watcher slot
@@ -128,12 +135,23 @@ func (n *Notifier) Notify(ctx context.Context, job *store.Job) error {
 		return fmt.Errorf("%w: build request: %v", ErrPermanent, err)
 	}
 
+	secret := n.opts.Secret
+	if n.opts.SecretFor != nil {
+		own, err := n.opts.SecretFor(ctx, job.AccountID)
+		if err != nil {
+			return fmt.Errorf("callback: signing secret: %w", err)
+		}
+		if len(own) > 0 {
+			secret = own
+		}
+	}
+
 	stamp := strconv.FormatInt(ts.Unix(), 10)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", "relaix-gateway")
 	req.Header.Set(HeaderTimestamp, stamp)
 	req.Header.Set(HeaderDelivery, job.ID.String())
-	req.Header.Set(HeaderSignature, "sha256="+Sign(n.opts.Secret, stamp, body))
+	req.Header.Set(HeaderSignature, "sha256="+Sign(secret, stamp, body))
 
 	resp, err := n.opts.Client.Do(req)
 	if err != nil {

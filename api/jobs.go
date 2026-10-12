@@ -150,8 +150,16 @@ func (s *Server) handleSend(w http.ResponseWriter, r *http.Request) {
 			}
 			created = append(created, c)
 		}
+		if s.opts.SendGuard != nil {
+			return s.opts.SendGuard.AdmitSend(ctx, tx, p, created)
+		}
 		return nil
 	})
+	var refused *Refusal
+	if errors.As(err, &refused) {
+		writeError(w, refused.Status, refused.Code, refused.Message)
+		return
+	}
 	if err != nil {
 		s.opts.Logger.Error("could not create jobs", "count", len(jobs), "err", err)
 		writeError(w, http.StatusInternalServerError, "internal", "could not create job")

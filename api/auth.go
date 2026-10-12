@@ -112,7 +112,7 @@ func principal(r *http.Request) Principal {
 // authenticate attaches the request's principal, or answers 401.
 func (s *Server) authenticate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if isPublic(r.URL.Path) {
+		if s.isPublic(r.URL.Path) {
 			next.ServeHTTP(w, r)
 			return
 		}

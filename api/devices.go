@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	qrcode "github.com/skip2/go-qrcode"
 
+	"github.com/KGMA74/relaix-server/devices"
 	"github.com/KGMA74/relaix-server/events"
 	"github.com/KGMA74/relaix-server/hub"
 	"github.com/KGMA74/relaix-server/policy"
@@ -365,6 +366,11 @@ func (s *Server) handleEnrollToken(w http.ResponseWriter, r *http.Request) {
 	}
 
 	minted, err := s.enroller.MintEnrollmentToken(r.Context(), principal(r).AccountID)
+	var refused *devices.RefusedError
+	if errors.As(err, &refused) {
+		writeError(w, http.StatusForbidden, "enrollment_refused", refused.Reason)
+		return
+	}
 	if err != nil {
 		s.opts.Logger.Error("could not mint enrollment token", "err", err)
 		writeError(w, http.StatusInternalServerError, "internal", "could not mint token")

@@ -68,3 +68,47 @@ func TestNewRejectsABadDSN(t *testing.T) {
 	}
 	fmt.Fprintln(os.Stderr, "expected failure:", err)
 }
+
+// What an embedding program writes through Querier inside WithTx commits or
+// rolls back with the gateway's own writes.
+func TestQuerierFollowsTheTransaction(t *testing.T) {
+	dsn := os.Getenv(envDSN)
+	if dsn == "" {
+		t.Skipf("%s is not set; run `make test-integration`", envDSN)
+	}
+	ctx := context.Background()
+	st, err := postgres.New(ctx, dsn)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	t.Cleanup(st.Close)
+
+	count := func(name string) int {
+		var n int
+		if err := st.Querier().QueryRow(ctx, `SELECT count(*) FROM accounts WHERE name = $1`, name).Scan(&n); err != nil {
+			t.Fatalf("count: %v", err)
+		}
+		return n
+	}
+	write := func(name string, fail bool) {
+		_ = st.WithTx(ctx, func(tx store.Store) error {
+			if _, err := tx.(*postgres.Store).Querier().Exec(ctx, `INSERT INTO accounts (name) VALUES ($1)`, name); err != nil {
+				t.Fatalf("insert: %v", err)
+			}
+			if fail {
+				return fmt.Errorf("roll back")
+			}
+			return nil
+		})
+	}
+
+	rolled, kept := "querier-rolled-back", "querier-kept"
+	write(rolled, true)
+	write(kept, false)
+	if count(rolled) != 0 || count(kept) != 1 {
+		t.Errorf("rolled back %d, kept %d; want 0 and 1", count(rolled), count(kept))
+	}
+	if _, err := st.Querier().Exec(ctx, `DELETE FROM accounts WHERE name = $1`, kept); err != nil {
+		t.Fatalf("cleanup: %v", err)
+	}
+}

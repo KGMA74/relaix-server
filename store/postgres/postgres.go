@@ -21,13 +21,15 @@ import (
 	"github.com/KGMA74/relaix-server/store"
 )
 
-// querier is the subset of pgx shared by *pgxpool.Pool and pgx.Tx. Every query
+// Querier is the subset of pgx shared by *pgxpool.Pool and pgx.Tx. Every query
 // in this package goes through it, so the same code serves both.
-type querier interface {
+type Querier interface {
 	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
 	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 }
+
+type querier = Querier
 
 // Store is a store.Store backed by Postgres.
 type Store struct {
@@ -61,6 +63,17 @@ func (s *Store) Close() {
 		s.pool.Close()
 	}
 }
+
+// Querier is the connection this Store runs on: the pool, or — for the Store
+// WithTx hands its callback — the open transaction. A program embedding the
+// gateway writes its own tables through it, so they commit or roll back with
+// the gateway's own writes:
+//
+//	err := st.WithTx(ctx, func(tx store.Store) error {
+//		q := tx.(*postgres.Store).Querier()
+//		...
+//	})
+func (s *Store) Querier() Querier { return s.q }
 
 // Devices implements store.Store.
 func (s *Store) Devices() store.DeviceStore { return deviceStore{s.q} }

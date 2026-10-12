@@ -55,6 +55,23 @@ type Options struct {
 	// on its own devices.
 	Router scheduler.Router
 
+	// SendGuard may refuse a send, inside the transaction creating its jobs.
+	// Nil admits every one.
+	SendGuard SendGuard
+
+	// Routes mounts an embedding program's own handlers on the API's mux,
+	// behind the same authentication, logging and recovery. Paths it needs
+	// reachable without credentials go in PublicPrefixes.
+	Routes func(mux *http.ServeMux)
+
+	// PublicPrefixes are extra path prefixes that skip authentication — a
+	// sign-in endpoint, say. The probes, the dashboard and /ui-config always
+	// do.
+	PublicPrefixes []string
+
+	// UIConfig is served at GET /ui-config.
+	UIConfig UIConfig
+
 	// PublicURL is the address agents should dial, encoded into enrollment QR
 	// codes alongside the token so a phone needs no manual configuration.
 	PublicURL string
@@ -139,6 +156,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /stats", s.handleStats)
 	mux.HandleFunc("GET /stats/activity", s.handleActivity)
 	mux.HandleFunc("GET /events", s.handleEvents)
+	mux.HandleFunc("GET /ui-config", s.handleUIConfig)
+
+	if s.opts.Routes != nil {
+		s.opts.Routes(mux)
+	}
 
 	if s.opts.UI != nil {
 		mux.Handle("GET "+uiPrefix, s.dashboard(s.opts.UI))
@@ -155,8 +177,9 @@ func (s *Server) Handler() http.Handler {
 // check has no credentials to offer, and requiring them would get the gateway
 // restarted for being unauthenticated rather than for being unhealthy.
 var publicPaths = map[string]bool{
-	"/healthz": true,
-	"/readyz":  true,
+	"/healthz":   true,
+	"/readyz":    true,
+	"/ui-config": true,
 }
 
 // isPublic reports whether a path skips authentication: the probes, and the
@@ -166,9 +189,17 @@ var publicPaths = map[string]bool{
 // ask for one. The bare "/ui" too, so the mux can redirect it to "/ui/": it
 // is the address people type, and answering it with a 401 reads as a wrong
 // key rather than a missing slash.
-func isPublic(p string) bool {
-	return publicPaths[p] || p == "/" || p == strings.TrimSuffix(uiPrefix, "/") ||
-		strings.HasPrefix(p, uiPrefix)
+func (s *Server) isPublic(p string) bool {
+	if publicPaths[p] || p == "/" || p == strings.TrimSuffix(uiPrefix, "/") ||
+		strings.HasPrefix(p, uiPrefix) {
+		return true
+	}
+	for _, prefix := range s.opts.PublicPrefixes {
+		if strings.HasPrefix(p, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 // logRequests records one line per request, with a generated id echoed back so

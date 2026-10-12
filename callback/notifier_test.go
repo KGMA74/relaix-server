@@ -273,3 +273,47 @@ func TestAttemptCountIsReported(t *testing.T) {
 		t.Errorf("attempt = %d, want 4 after 3 failures", p.Attempt)
 	}
 }
+
+func TestAccountsCanSignWithTheirOwnSecret(t *testing.T) {
+	var got capture
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got.record(r)
+	}))
+	defer srv.Close()
+
+	own := []byte("account-secret")
+	withOwn := uuid.New()
+	n := newNotifier(t, Options{SecretFor: func(_ context.Context, acc uuid.UUID) ([]byte, error) {
+		if acc == withOwn {
+			return own, nil
+		}
+		return nil, nil
+	}})
+
+	job := terminalJob(srv.URL)
+	job.AccountID = withOwn
+	if err := n.Notify(context.Background(), job); err != nil {
+		t.Fatalf("Notify: %v", err)
+	}
+	if !Verify(own, got.timestamp, got.body, got.signature) {
+		t.Error("not signed with the account's secret")
+	}
+
+	// No secret of its own: the gateway's.
+	job = terminalJob(srv.URL)
+	if err := n.Notify(context.Background(), job); err != nil {
+		t.Fatalf("Notify: %v", err)
+	}
+	if !Verify(testSecret, got.timestamp, got.body, got.signature) {
+		t.Error("fallback not signed with the shared secret")
+	}
+
+	// A lookup failure is retried, not sent unsigned or permanent.
+	n = newNotifier(t, Options{SecretFor: func(context.Context, uuid.UUID) ([]byte, error) {
+		return nil, errors.New("db down")
+	}})
+	err := n.Notify(context.Background(), terminalJob(srv.URL))
+	if err == nil || errors.Is(err, ErrPermanent) {
+		t.Errorf("err = %v, want a retryable error", err)
+	}
+}
