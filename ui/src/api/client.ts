@@ -1,4 +1,4 @@
-import type { Device, EnrollToken, Job, JobEvent, JobPage, SendRequest, Stats } from "./types";
+import type { Country, Device, Policy, EnrollToken, Job, JobEvent, JobPage, SendRequest, Stats } from "./types";
 
 // The API key lives in sessionStorage: it survives a reload but not closing the
 // tab, which is the right lifetime for an admin credential typed by hand.
@@ -34,8 +34,18 @@ export class ApiError extends Error {
   }
 }
 
+/** The key requests are sent with: stored, or kept in memory when storage is blocked. */
+export function currentApiKey(): string | null {
+  return getApiKey() ?? memoryKey;
+}
+
 // Called on any 401 so the app can drop back to the login screen.
 let onUnauthorized: () => void = () => {};
+
+/** For callers that talk to the API outside request(), like the event stream. */
+export function notifyUnauthorized() {
+  onUnauthorized();
+}
 export function setUnauthorizedHandler(fn: () => void) {
   onUnauthorized = fn;
 }
@@ -105,5 +115,8 @@ export const api = {
   listDevices: () => request<{ devices: Device[] }>("GET", "/devices"),
   setDeviceEnabled: (id: string, enabled: boolean) => request<Device>("PATCH", `/devices/${id}`, { enabled }),
   deleteDevice: (id: string) => request<void>("DELETE", `/devices/${id}`),
+  putPolicy: (id: string, policy: Omit<Policy, "version" | "updatedAt">) =>
+    request<Policy>("PUT", `/devices/${id}/policy`, policy),
+  countries: () => request<{ countries: Country[] }>("GET", "/countries"),
   enrollToken: () => request<EnrollToken>("POST", "/admin/devices/enroll-token"),
 };

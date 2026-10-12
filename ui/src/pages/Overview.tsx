@@ -6,6 +6,7 @@ import { api } from "../api/client";
 import { JOB_STATUSES } from "../api/types";
 import { CardHeader, Empty, ErrorNote, PageHeader, STATUS_LABEL, STATUS_TONE, StatusBadge, type Tone } from "../components/common";
 import { formatRelative } from "../lib/format";
+import { usePollInterval } from "@/lib/live";
 import { cn } from "@/lib/utils";
 
 const WINDOWS = [
@@ -28,8 +29,9 @@ const TONE_TEXT: Record<Tone, string> = {
 
 export function OverviewPage() {
   const [window, setWindow] = useState("24h");
-  const stats = useQuery({ queryKey: ["stats", window], queryFn: () => api.stats(window), refetchInterval: REFRESH_MS });
-  const recent = useQuery({ queryKey: ["jobs", "recent"], queryFn: () => api.listJobs({ limit: 8 }), refetchInterval: REFRESH_MS });
+  const poll = usePollInterval(REFRESH_MS);
+  const stats = useQuery({ queryKey: ["stats", window], queryFn: () => api.stats(window), refetchInterval: poll });
+  const recent = useQuery({ queryKey: ["jobs", "recent"], queryFn: () => api.listJobs({ limit: 8 }), refetchInterval: poll });
 
   const s = stats.data;
   const delivered = s ? s.jobs.sent + s.jobs.delivered : 0;
@@ -40,7 +42,7 @@ export function OverviewPage() {
     <>
       <PageHeader
         title="Vue d'ensemble"
-        subtitle="Activité de la passerelle, rafraîchie toutes les 10 secondes."
+        subtitle="Activité de la passerelle, mise à jour en direct."
         actions={
           <div role="tablist" aria-label="Période" className="inline-flex rounded-md border bg-card p-0.5 shadow-xs">
             {WINDOWS.map((w) => (

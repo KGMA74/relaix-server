@@ -21,7 +21,11 @@ import {
   SidebarTrigger,
   useSidebar,
 } from "@/components/ui/sidebar";
+import { Toaster } from "@/components/ui/sonner";
 import { useTheme } from "@/hooks/use-theme";
+import { useLive, useLiveEvent, type LiveStatus } from "@/lib/live";
+import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 
 interface NavItem {
   to: string;
@@ -91,8 +95,57 @@ function Nav() {
   );
 }
 
-function ThemeToggle() {
-  const [theme, toggle] = useTheme();
+/** Whether the dashboard is receiving live events, in the top bar. */
+function LiveIndicator() {
+  const { status } = useLive();
+  const label: Record<LiveStatus, string> = {
+    live: "En direct",
+    connecting: "Connexion…",
+    offline: "Hors ligne",
+  };
+  const title: Record<LiveStatus, string> = {
+    live: "Les changements s'affichent dès qu'ils arrivent.",
+    connecting: "Ouverture du flux d'événements…",
+    offline: "Flux d'événements coupé : actualisation périodique en attendant de le rétablir.",
+  };
+  return (
+    <span
+      title={title[status]}
+      className={cn(
+        "hidden items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium sm:inline-flex",
+        status === "live" && "border-success-line bg-success-soft text-success",
+        status === "connecting" && "border-warning-line bg-warning-soft text-warning",
+        status === "offline" && "border-border bg-muted text-muted-foreground",
+      )}
+    >
+      <span className="relative flex size-2">
+        {status === "live" && (
+          <span className="absolute inline-flex size-full animate-ping rounded-full bg-success opacity-60 motion-reduce:hidden" />
+        )}
+        <span className={cn("relative inline-flex size-2 rounded-full bg-current")} />
+      </span>
+      {label[status]}
+    </span>
+  );
+}
+
+/** Announces the fleet changes an operator should notice even on another page. */
+function LiveToasts() {
+  useLiveEvent((e) => {
+    if (e.type === "device.enrolled") {
+      toast.success(e.reenrolled ? "Téléphone réenrôlé" : "Nouveau téléphone dans la flotte", {
+        description: e.reenrolled ? "Il a repris sa fiche et son historique." : undefined,
+      });
+    } else if (e.type === "device.removed") {
+      toast("Un téléphone a quitté la flotte");
+    } else if (e.type === "job.updated" && e.status === "failed") {
+      toast.error("Un envoi a échoué", { description: "Le détail est dans l'historique." });
+    }
+  });
+  return null;
+}
+
+function ThemeToggle({ theme, toggle }: { theme: "light" | "dark"; toggle: () => void }) {
   return (
     <Button
       variant="ghost"
@@ -108,6 +161,7 @@ function ThemeToggle() {
 
 export function Layout() {
   const { signOut } = useAuth();
+  const [theme, toggleTheme] = useTheme();
   const { pathname } = useLocation();
   const current = allItems.find((i) => isActive(pathname, i));
 
@@ -153,8 +207,9 @@ export function Layout() {
           <SidebarTrigger className="-ml-1" title="Réduire / déplier (Ctrl+B)" />
           <Separator orientation="vertical" className="mr-1 data-[orientation=vertical]:h-4" />
           <span className="truncate text-sm font-medium">{current?.label ?? "Relaix"}</span>
-          <div className="ml-auto flex items-center gap-1">
-            <ThemeToggle />
+          <div className="ml-auto flex items-center gap-2">
+            <LiveIndicator />
+            <ThemeToggle theme={theme} toggle={toggleTheme} />
           </div>
         </header>
         {/* min-w-0: without it a flex child never shrinks below its content, and
@@ -165,6 +220,8 @@ export function Layout() {
           </div>
         </div>
       </SidebarInset>
+      <LiveToasts />
+      <Toaster theme={theme} position="bottom-right" richColors closeButton />
     </SidebarProvider>
   );
 }

@@ -1,15 +1,17 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { BatteryCharging, Check, Copy, Loader2, MessageSquare, Plus, Power, RefreshCw, Smartphone, Trash2 } from "lucide-react";
+import { BatteryCharging, Check, Copy, Loader2, MessageSquare, Plus, Power, RefreshCw, SlidersHorizontal, Smartphone, Trash2 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
 import type { Device } from "../api/types";
-import { ConfirmDialog, Dot, Empty, ErrorNote, Modal, PageHeader, SignalBars } from "../components/common";
+import { ConfirmDialog, Dot, Empty, ErrorNote, Modal, PageHeader, Pill, SignalBars } from "../components/common";
+import { PolicyDialog } from "../components/PolicyDialog";
 import { formatDateTime, formatRelative, shortId } from "../lib/format";
+import { useLiveEvent, usePollInterval } from "@/lib/live";
 import { cn } from "@/lib/utils";
 
 export function DevicesPage() {
-  const devices = useQuery({ queryKey: ["devices"], queryFn: api.listDevices, refetchInterval: 10_000 });
+  const devices = useQuery({ queryKey: ["devices"], queryFn: api.listDevices, refetchInterval: usePollInterval(10_000) });
   const [enrolling, setEnrolling] = useState(false);
   const list = devices.data?.devices ?? [];
 
@@ -50,6 +52,7 @@ export function DevicesPage() {
 function DeviceCard({ device: d }: { device: Device }) {
   const queryClient = useQueryClient();
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [editingRules, setEditingRules] = useState(false);
   const refresh = () => {
     queryClient.invalidateQueries({ queryKey: ["devices"] });
     queryClient.invalidateQueries({ queryKey: ["stats"] });
@@ -78,8 +81,18 @@ function DeviceCard({ device: d }: { device: Device }) {
         <div className="flex shrink-0 flex-col items-end gap-1">
           <Dot on={d.connected} label={d.connected ? "Connecté" : "Hors ligne"} />
           <Dot on={d.ready} label={d.ready ? "Prêt à envoyer" : "Indisponible"} />
+          {!d.availableNow && <Pill tone="warning">Hors horaires</Pill>}
         </div>
       </div>
+
+      <button
+        type="button"
+        onClick={() => setEditingRules(true)}
+        className="mt-3 flex w-full items-center gap-2 rounded-md border border-dashed px-3 py-2 text-left text-xs text-muted-foreground transition-colors hover:border-solid hover:bg-row-hover"
+      >
+        <SlidersHorizontal className="size-3.5 shrink-0" aria-hidden />
+        <span className="min-w-0 truncate">{rulesSummary(d)}</span>
+      </button>
 
       {h ? (
         <div className="mt-4 grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
@@ -120,6 +133,10 @@ function DeviceCard({ device: d }: { device: Device }) {
           Vu {formatRelative(d.lastSeenAt)} · {d.phoneNumber || d.carrier || shortId(d.deviceId)}
         </span>
         <div className="flex gap-2">
+          <button className="btn-secondary" onClick={() => setEditingRules(true)}>
+            <SlidersHorizontal className="size-4" aria-hidden />
+            Règles
+          </button>
           <Link to={`/history?deviceId=${d.deviceId}`} className="btn-secondary">
             <MessageSquare className="size-4" aria-hidden />
             Messages
@@ -141,6 +158,8 @@ function DeviceCard({ device: d }: { device: Device }) {
       <div className="mt-2">
         <ErrorNote error={toggle.error} />
       </div>
+
+      {editingRules && <PolicyDialog device={d} onClose={() => setEditingRules(false)} />}
 
       {confirmDelete && (
         <ConfirmDialog
@@ -191,6 +210,13 @@ function EnrollDialog({ onClose }: { onClose: () => void }) {
     queryClient.invalidateQueries({ queryKey: ["devices"] });
     onClose();
   };
+
+  // The phone scanned the code: nothing left to do here. Any enrollment
+  // closes it — the token is single-use, so the one this dialog shows is
+  // spent either way.
+  useLiveEvent((e) => {
+    if (e.type === "device.enrolled") close();
+  });
 
   const expiresIn = mint.data ? Math.max(0, Math.floor((new Date(mint.data.expiresAt).getTime() - now) / 1000)) : 0;
   const expired = mint.data !== undefined && expiresIn === 0;
@@ -267,4 +293,31 @@ function CopyPayload({ payload }: { payload: string }) {
       {copied ? "Copié" : "Copier la configuration (saisie manuelle)"}
     </button>
   );
+}
+
+const DAY_SHORT = ["", "lun", "mar", "mer", "jeu", "ven", "sam", "dim"];
+const hhmm = (m: number) => `${String(Math.floor(m / 60) % 24).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+
+/** The rules in one line, so a card says what a phone takes without opening it. */
+function rulesSummary(d: Device): string {
+  const p = d.policy;
+  const parts: string[] = [];
+  const windows = p?.availability?.windows ?? [];
+  if (windows.length) {
+    parts.push(
+      windows
+        .map((w) => {
+          const days = w.days?.length ? w.days.map((n) => DAY_SHORT[n]).join(" ") : "tous les jours";
+          return `${days} ${hhmm(w.start)}–${hhmm(w.end)}`;
+        })
+        .join(", "),
+    );
+  }
+  if (p?.accept?.countries?.length) parts.push(p.accept.countries.join(", "));
+  if (p?.accept?.pattern) parts.push(`motif ${p.accept.pattern}`);
+  const offSims = (p?.sims ?? []).filter((s) => s.disabled).length;
+  const ruledSims = (p?.sims ?? []).length - offSims;
+  if (offSims) parts.push(`${offSims} SIM désactivée${offSims > 1 ? "s" : ""}`);
+  if (ruledSims) parts.push(`règles sur ${ruledSims} SIM`);
+  return parts.length ? parts.join(" · ") : "Aucune règle : tous les numéros, à toute heure";
 }

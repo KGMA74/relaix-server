@@ -6,6 +6,7 @@ import { ApiError } from "./api/client";
 import { AuthProvider, useAuth } from "./auth";
 import { Layout } from "./components/Layout";
 import "./index.css";
+import { LiveProvider } from "./lib/live";
 import { DevicesPage } from "./pages/Devices";
 import { HistoryPage } from "./pages/History";
 import { IntegrationPage } from "./pages/Integration";
@@ -28,7 +29,8 @@ function App() {
   if (!signedIn) return <LoginPage />;
 
   return (
-    <Routes>
+    <LiveProvider>
+      <Routes>
       <Route element={<Layout />}>
         <Route index element={<OverviewPage />} />
         <Route path="send" element={<SendPage />} />
@@ -37,7 +39,8 @@ function App() {
         <Route path="integration" element={<IntegrationPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
-    </Routes>
+      </Routes>
+    </LiveProvider>
   );
 }
 

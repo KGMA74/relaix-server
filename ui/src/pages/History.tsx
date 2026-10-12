@@ -6,6 +6,7 @@ import { api, type JobQuery } from "../api/client";
 import { JOB_STATUSES, TERMINAL_STATUSES, type Job, type JobStatus } from "../api/types";
 import { ConfirmDialog, Empty, ErrorNote, Modal, PageHeader, STATUS_LABEL, StatusBadge } from "../components/common";
 import { formatDateTime, localInputToISO, shortId } from "../lib/format";
+import { usePollInterval } from "@/lib/live";
 
 const PAGE_SIZE = 50;
 
@@ -164,8 +165,9 @@ function JobDetail({
 }) {
   const queryClient = useQueryClient();
   // Re-read while open: a pending job's status can move under the operator's eyes.
-  const job = useQuery({ queryKey: ["job", jobId], queryFn: () => api.getJob(jobId), initialData: initial, refetchInterval: 5000 });
-  const events = useQuery({ queryKey: ["job", jobId, "events"], queryFn: () => api.jobEvents(jobId), refetchInterval: 5000 });
+  const poll = usePollInterval(5000);
+  const job = useQuery({ queryKey: ["job", jobId], queryFn: () => api.getJob(jobId), initialData: initial, refetchInterval: poll });
+  const events = useQuery({ queryKey: ["job", jobId, "events"], queryFn: () => api.jobEvents(jobId), refetchInterval: poll });
   const [confirming, setConfirming] = useState(false);
 
   const cancel = useMutation({

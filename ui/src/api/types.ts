@@ -91,6 +91,53 @@ export interface Device {
   health?: Health;
   lastSeenAt?: string;
   createdAt: string;
+  /** IANA zone the phone reports; the policy's windows default to it. */
+  timeZone?: string;
+  policy: Policy;
+  /** The device's own hours are open now (SIM hours aside). */
+  availableNow: boolean;
+}
+
+/** A daily slot. Minutes since midnight; end exclusive; end <= start runs past midnight. */
+export interface TimeWindow {
+  /** ISO weekdays, 1 = Monday … 7 = Sunday. Empty: every day. */
+  days?: number[];
+  start: number;
+  end: number;
+}
+
+export interface Availability {
+  timeZone?: string;
+  /** None: always available. */
+  windows?: TimeWindow[];
+}
+
+export interface AcceptRules {
+  /** ISO 3166-1 alpha-2. Empty: any country. */
+  countries?: string[];
+  /** RE2 expression on the E.164 recipient. Empty: any number. */
+  pattern?: string;
+}
+
+export interface SimPolicy {
+  subscriptionId: number;
+  disabled?: boolean;
+  accept: AcceptRules;
+  availability: Availability;
+}
+
+/** When a device takes work and for whom. Every empty field restricts nothing. */
+export interface Policy {
+  version: number;
+  availability: Availability;
+  accept: AcceptRules;
+  sims?: SimPolicy[];
+  updatedAt?: string;
+}
+
+export interface Country {
+  code: string;
+  prefixes: string[];
 }
 
 export interface Stats {
