@@ -239,6 +239,8 @@ func (s *Server) readLoop(
 			s.onPolicyUpdate(ctx, device, payload.PolicyUpdate, log)
 		case *v1.DeviceMessage_SmsReceived:
 			s.onSmsReceived(ctx, device, payload.SmsReceived, log)
+		case *v1.DeviceMessage_AutomationRun:
+			s.onAutomationRun(ctx, device, payload.AutomationRun, log)
 		case *v1.DeviceMessage_Leave:
 			// Ends the stream: the device it belonged to no longer exists.
 			return s.onLeave(ctx, device, payload.Leave, log)

@@ -132,7 +132,15 @@ const (
 	CapUSSDMenu = "ussd_menu"
 	// CapInboundSMS forwards received SMS.
 	CapInboundSMS = "inbound_sms"
+	// CapUSSDPin resolves {pin} in a USSD code from the phone's own vault,
+	// for codes approved there.
+	CapUSSDPin = "ussd_pin"
 )
+
+// PinPlaceholder stands for a SIM's PIN in a USSD code. The gateway never
+// holds a PIN: the phone substitutes it, and only for codes its owner
+// approved on the phone.
+const PinPlaceholder = "{pin}"
 
 // JobMode decides what happens when no device can take a job right now.
 type JobMode string
@@ -416,6 +424,11 @@ type InboundMessage struct {
 	Body           string
 	ReceivedAt     time.Time
 	CreatedAt      time.Time
+
+	// AutomationID is the automation that forwarded it, and Fields what its
+	// pattern extracted. Empty for a message forwarded by the inbound rules.
+	AutomationID string
+	Fields       map[string]string
 
 	// Webhook tracks the notification of the message, like a job's callback.
 	Webhook CallbackState

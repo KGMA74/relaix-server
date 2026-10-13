@@ -20,6 +20,9 @@ type inboundResponse struct {
 	Body           string  `json:"body"`
 	ReceivedAt     string  `json:"receivedAt"`
 	CreatedAt      string  `json:"createdAt"`
+	// AutomationID and Fields: set when an automation forwarded it.
+	AutomationID string            `json:"automationId,omitempty"`
+	Fields       map[string]string `json:"fields,omitempty"`
 	// Webhook is where the message was posted, when it was: delivered, still
 	// retrying, or given up on.
 	Webhook *webhookResponse `json:"webhook,omitempty"`
@@ -132,6 +135,10 @@ func toInboundResponse(m *store.InboundMessage) inboundResponse {
 		Body:           m.Body,
 		ReceivedAt:     m.ReceivedAt.UTC().Format(time.RFC3339),
 		CreatedAt:      m.CreatedAt.UTC().Format(time.RFC3339),
+		AutomationID:   m.AutomationID,
+	}
+	if len(m.Fields) > 0 {
+		resp.Fields = m.Fields
 	}
 	if m.DeviceID != nil {
 		id := m.DeviceID.String()

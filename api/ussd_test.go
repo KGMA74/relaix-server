@@ -118,3 +118,19 @@ func TestUSSDOnAnotherAccountsDeviceIsUnknown(t *testing.T) {
 		t.Errorf("code = %q, want unknown_device", got.Error.Code)
 	}
 }
+
+func TestUSSDAcceptsAPinPlaceholder(t *testing.T) {
+	h := newHarness(t, Options{APIKey: testAPIKey})
+	dev := h.store.SeedDevice(&store.Device{Enabled: true}).ID.String()
+	rec := h.do(t, http.MethodPost, "/ussd", ussdRequest{DeviceID: &dev, Code: "*144*2*1*70000000*5000*{pin}#"})
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status = %d: %s", rec.Code, rec.Body)
+	}
+	if got := decode[jobResponse](t, rec); got.Body != "*144*2*1*70000000*5000*{pin}#" {
+		t.Errorf("body = %q: the placeholder is no secret and stays visible", got.Body)
+	}
+	bad := h.do(t, http.MethodPost, "/ussd", ussdRequest{DeviceID: &dev, Code: "*144*{code}#"})
+	if bad.Code != http.StatusBadRequest {
+		t.Errorf("another placeholder = %d, want 400", bad.Code)
+	}
+}

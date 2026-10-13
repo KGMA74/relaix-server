@@ -93,7 +93,18 @@ export function InboxPage() {
                 <tr key={m.messageId} className="align-top">
                   <td className="td whitespace-nowrap text-muted-foreground">{formatDateTime(m.receivedAt)}</td>
                   <td className="td whitespace-nowrap font-medium">{m.sender}</td>
-                  <td className="td max-w-xl text-sm whitespace-pre-wrap">{m.body}</td>
+                  <td className="td max-w-xl text-sm">
+                    <div className="whitespace-pre-wrap">{m.body}</div>
+                    {m.fields && (
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        {Object.entries(m.fields).map(([k, v]) => (
+                          <span key={k} className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">
+                            {k}: {v}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </td>
                   <td className="td whitespace-nowrap text-muted-foreground">
                     {deviceLabel(m.deviceId)}
                     {m.subscriptionId !== undefined && <span className="text-xs"> · SIM {m.subscriptionId}</span>}

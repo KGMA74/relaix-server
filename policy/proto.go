@@ -14,6 +14,7 @@ func ToProto(p Policy) *v1.DevicePolicy {
 		Accept:       acceptToProto(p.Accept),
 		Limits:       limitsToProto(p.Limits),
 		Inbound:      inboundToProto(p.Inbound),
+		Automations:  automationsToProto(p.Automations),
 	}
 	if p.UpdatedAt != nil {
 		out.UpdatedAt = timestamppb.New(*p.UpdatedAt)
@@ -38,6 +39,7 @@ func FromProto(m *v1.DevicePolicy) Policy {
 		Accept:       acceptFromProto(m.GetAccept()),
 		Limits:       limitsFromProto(m.GetLimits()),
 		Inbound:      inboundFromProto(m.GetInbound()),
+		Automations:  automationsFromProto(m.GetAutomations()),
 	}
 	for _, s := range m.GetSims() {
 		p.Sims = append(p.Sims, SimPolicy{

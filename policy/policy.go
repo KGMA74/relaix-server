@@ -38,6 +38,8 @@ type Policy struct {
 	Limits Limits `json:"limits"`
 	// Inbound is which received SMS the phone forwards.
 	Inbound Inbound `json:"inbound"`
+	// Automations run on the phone when an SMS arrives.
+	Automations []Automation `json:"automations,omitempty"`
 }
 
 // Limits cap how many messages a device or a SIM is handed over sliding
@@ -118,6 +120,7 @@ func Normalize(p Policy) Policy {
 	p.Availability = normalizeAvailability(p.Availability)
 	p.Accept = normalizeAccept(p.Accept)
 	p.Inbound = normalizeInbound(p.Inbound)
+	p.Automations = normalizeAutomations(p.Automations)
 	sims := make([]SimPolicy, 0, len(p.Sims))
 	for _, s := range p.Sims {
 		s.Accept = normalizeAccept(s.Accept)
@@ -165,6 +168,9 @@ func Validate(p Policy) error {
 		return err
 	}
 	if err := validateInbound(p.Inbound); err != nil {
+		return err
+	}
+	if err := validateAutomations(p.Automations); err != nil {
 		return err
 	}
 	seen := map[int32]bool{}

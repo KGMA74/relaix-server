@@ -83,6 +83,8 @@ export function PolicyDialog({ device, onClose }: { device: Device; onClose: () 
     sims: device.policy?.sims ?? [],
     limits: device.policy?.limits ?? {},
     inbound: device.policy?.inbound ?? {},
+    // Edited on their own page; carried through, since rules are replaced whole.
+    automations: device.policy?.automations ?? [],
   }));
 
   const sims = [...(device.sims ?? [])].sort((a, b) => a.slotIndex - b.slotIndex);

@@ -87,6 +87,9 @@ export interface InboundMessage {
   receivedAt: string;
   createdAt: string;
   webhook?: { delivered: boolean; attempts: number; lastError?: string };
+  /** Set when an automation forwarded it: the automation and its fields. */
+  automationId?: string;
+  fields?: Record<string, string>;
 }
 
 export interface InboxPage {
@@ -197,6 +200,64 @@ export interface Policy {
   limits?: SendLimits;
   /** Which received SMS the phone forwards. Off unless enabled. */
   inbound?: InboundRules;
+  /** What the phone does by itself when an SMS arrives. */
+  automations?: Automation[];
+}
+
+export interface AutomationStep {
+  action: AutomationActionType;
+  ok: boolean;
+  detail?: string;
+  responses?: string[];
+}
+
+/** What an automation did with one received SMS, as the phone reported it. */
+export interface AutomationRun {
+  runId: string;
+  deviceId?: string;
+  automationId: string;
+  sender?: string;
+  startedAt: string;
+  finishedAt: string;
+  ok: boolean;
+  error?: string;
+  steps: AutomationStep[];
+}
+
+export type AutomationActionType = "forward" | "reply_sms" | "webhook" | "ussd";
+
+export interface AutomationAction {
+  type: AutomationActionType;
+  /** reply_sms */
+  to?: string;
+  text?: string;
+  /** webhook */
+  url?: string;
+  body?: string;
+  secret?: string;
+  /** ussd: may contain {pin}, resolved on the phone only. */
+  code?: string;
+}
+
+export interface AutomationCondition {
+  field: string;
+  /** eq, ne, contains (text); gt, gte, lt, lte (numbers). */
+  op: string;
+  value: string;
+}
+
+export interface Automation {
+  id: string;
+  name: string;
+  enabled?: boolean;
+  /** 0 or absent: any SIM. */
+  subscriptionId?: number;
+  senders?: string[];
+  /** Named groups (?<amount>…) become fields. */
+  pattern?: string;
+  conditions?: AutomationCondition[];
+  actions: AutomationAction[];
+  limits?: SendLimits;
 }
 
 export interface InboundRules {

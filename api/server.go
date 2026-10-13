@@ -146,6 +146,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /ussd", s.handleUSSD)
 	mux.HandleFunc("GET /inbox", s.handleListInbox)
 	mux.HandleFunc("GET /inbox/{id}", s.handleGetInbound)
+	mux.HandleFunc("GET /automations/runs", s.handleListRuns)
 	mux.HandleFunc("GET /jobs", s.handleListJobs)
 	mux.HandleFunc("GET /jobs/{id}", s.handleGetJob)
 	mux.HandleFunc("GET /jobs/{id}/events", s.handleJobEvents)

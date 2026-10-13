@@ -86,3 +86,23 @@ func TestUSSDWaitsForItsDeviceOrFailsWhenImmediate(t *testing.T) {
 		t.Errorf("no device: status %q code %q", got.Status, got.ErrorCode)
 	}
 }
+
+func TestUSSDWithAPinNeedsAnAgentWithTheVault(t *testing.T) {
+	st := storetest.New()
+	plain := st.SeedDevice(&store.Device{Enabled: true, Capabilities: []string{store.CapUSSD}}).ID
+	vault := st.SeedDevice(&store.Device{Enabled: true, Capabilities: []string{store.CapUSSD, store.CapUSSDPin}}).ID
+	h := newFakeHub(plain, vault)
+	s := newScheduler(t, st, h, Options{})
+
+	refused := st.SeedJob(&store.Job{Kind: store.KindUSSD, Body: "*144*{pin}#", Mode: store.ModeQueued, RequestedDeviceID: &plain})
+	sent := st.SeedJob(&store.Job{Kind: store.KindUSSD, Body: "*144*{pin}#", Mode: store.ModeQueued, RequestedDeviceID: &vault})
+	if err := s.Tick(context.Background()); err != nil {
+		t.Fatalf("Tick: %v", err)
+	}
+	if got := st.JobByID(refused.ID); got.ErrorCode != "unsupported_by_device" {
+		t.Errorf("without the vault: %q %q", got.Status, got.ErrorCode)
+	}
+	if got := st.JobByID(sent.ID); got.Status != store.JobAssigned {
+		t.Errorf("with the vault: %q", got.Status)
+	}
+}

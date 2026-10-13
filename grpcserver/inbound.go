@@ -3,6 +3,7 @@ package grpcserver
 import (
 	"context"
 	"log/slog"
+	"time"
 	"unicode/utf8"
 
 	"github.com/google/uuid"
@@ -56,7 +57,20 @@ func (s *Server) onSmsReceived(ctx context.Context, device *store.Device, m *v1.
 		return
 	}
 	sender := m.GetSender()
-	if !current.Policy.Inbound.Forwards(sender) {
+	// Forwarded by an automation, or by the plain inbound rules: either way the
+	// rules as stored now must agree, or the message is not kept.
+	if id := m.GetAutomationId(); id != "" {
+		a, ok := current.Policy.Automation(id)
+		received := ""
+		if ts := m.GetReceivedAt(); ts != nil {
+			received = ts.AsTime().UTC().Format(time.RFC3339)
+		}
+		if _, matches := a.Match(sender, m.GetBody(), received, m.GetSubscriptionId()); !ok || !matches || !a.Forwards() {
+			log.Info("received SMS not covered by the automation it names; dropped", "automation", id)
+			ack()
+			return
+		}
+	} else if !current.Policy.Inbound.Forwards(sender) {
 		log.Info("received SMS not covered by the device's rules; dropped")
 		ack()
 		return
@@ -69,12 +83,14 @@ func (s *Server) onSmsReceived(ctx context.Context, device *store.Device, m *v1.
 
 	now := s.opts.Now()
 	in := &store.InboundMessage{
-		AccountID:  current.AccountID,
-		DeviceID:   &device.ID,
-		DeviceRef:  ref,
-		Sender:     sender,
-		Body:       m.GetBody(),
-		ReceivedAt: now,
+		AccountID:    current.AccountID,
+		DeviceID:     &device.ID,
+		DeviceRef:    ref,
+		Sender:       sender,
+		Body:         m.GetBody(),
+		ReceivedAt:   now,
+		AutomationID: m.GetAutomationId(),
+		Fields:       m.GetFields(),
 	}
 	if ts := m.GetReceivedAt(); ts != nil {
 		in.ReceivedAt = ts.AsTime()

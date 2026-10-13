@@ -38,6 +38,7 @@ type Store interface {
 	Enrollments() EnrollmentStore
 	Events() EventStore
 	Inbound() InboundStore
+	AutomationRuns() AutomationRunStore
 
 	// WithTx runs fn inside a transaction, passing a Store scoped to it.
 	// Returning a non-nil error rolls back. Nesting is not supported: the Store

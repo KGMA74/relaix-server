@@ -16,7 +16,7 @@ type inboundStore struct{ q querier }
 
 const inboundColumns = `
 	id, account_id, device_id, device_ref, subscription_id, sender, body,
-	received_at, created_at,
+	received_at, created_at, automation_id, fields,
 	webhook_url, webhook_attempts, webhook_next_at, webhook_delivered_at, webhook_last_error`
 
 // Record leans on the unique index over (device_id, device_ref): a resend
@@ -25,14 +25,15 @@ func (s inboundStore) Record(ctx context.Context, in *store.InboundMessage) (*st
 	const q = `
 		INSERT INTO inbound_messages (
 			account_id, device_id, device_ref, subscription_id, sender, body, received_at,
-			webhook_url, webhook_next_at
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+			webhook_url, webhook_next_at, automation_id, fields
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
 		ON CONFLICT (device_id, device_ref) DO NOTHING
 		RETURNING ` + inboundColumns
 
 	m, err := scanInbound(s.q.QueryRow(ctx, q,
 		store.AccountOrDefault(in.AccountID), in.DeviceID, in.DeviceRef, in.SubscriptionID,
 		in.Sender, in.Body, in.ReceivedAt, in.Webhook.URL, in.Webhook.NextAttemptAt,
+		in.AutomationID, fieldsOrEmpty(in.Fields),
 	))
 	if err == nil {
 		return m, true, nil
@@ -159,11 +160,19 @@ func scanInbound(row scanner) (*store.InboundMessage, error) {
 	var m store.InboundMessage
 	err := row.Scan(
 		&m.ID, &m.AccountID, &m.DeviceID, &m.DeviceRef, &m.SubscriptionID, &m.Sender, &m.Body,
-		&m.ReceivedAt, &m.CreatedAt,
+		&m.ReceivedAt, &m.CreatedAt, &m.AutomationID, &m.Fields,
 		&m.Webhook.URL, &m.Webhook.Attempts, &m.Webhook.NextAttemptAt, &m.Webhook.DeliveredAt, &m.Webhook.LastError,
 	)
 	if err != nil {
 		return nil, err
 	}
 	return &m, nil
+}
+
+// fieldsOrEmpty stores no fields as {} rather than NULL.
+func fieldsOrEmpty(f map[string]string) map[string]string {
+	if f == nil {
+		return map[string]string{}
+	}
+	return f
 }

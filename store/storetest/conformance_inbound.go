@@ -60,6 +60,19 @@ func testInbound(t *testing.T, newStore Factory) {
 		if err != nil {
 			t.Fatalf("Get: %v", err)
 		}
+		if got.AutomationID != "" || len(got.Fields) != 0 {
+			t.Errorf("a plain message has automation %q, fields %v", got.AutomationID, got.Fields)
+		}
+		withFields, _, err := s.Inbound().Record(ctx, &store.InboundMessage{
+			DeviceID: &dev, DeviceRef: "ref-fields", Sender: "OrangeMoney", Body: "x", ReceivedAt: base,
+			AutomationID: "auto-1", Fields: map[string]string{"amount": "5 000", "ref": "CI1"},
+		})
+		if err != nil {
+			t.Fatalf("Record with fields: %v", err)
+		}
+		if back, _ := s.Inbound().Get(ctx, withFields.ID); back.AutomationID != "auto-1" || back.Fields["amount"] != "5 000" || back.Fields["ref"] != "CI1" {
+			t.Errorf("fields lost: %+v", back)
+		}
 		if got.Sender != "OrangeMoney" || got.SubscriptionID == nil || *got.SubscriptionID != 1 || !got.ReceivedAt.Equal(base) {
 			t.Errorf("round trip lost fields: %+v", got)
 		}

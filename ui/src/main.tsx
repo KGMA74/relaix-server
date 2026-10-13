@@ -7,6 +7,7 @@ import { AuthProvider, useAuth } from "./auth";
 import { Layout } from "./components/Layout";
 import "./index.css";
 import { LiveProvider } from "./lib/live";
+import { AutomationsPage } from "./pages/Automations";
 import { DevicesPage } from "./pages/Devices";
 import { HistoryPage } from "./pages/History";
 import { InboxPage } from "./pages/Inbox";
@@ -40,6 +41,7 @@ function App() {
         <Route path="inbox" element={<InboxPage />} />
         <Route path="ussd" element={<UssdPage />} />
         <Route path="devices" element={<DevicesPage />} />
+        <Route path="automations" element={<AutomationsPage />} />
         <Route path="integration" element={<IntegrationPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>

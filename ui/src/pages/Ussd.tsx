@@ -10,7 +10,8 @@ import { cn } from "@/lib/utils";
 
 // Matches the server (api/ussd.go).
 const MAX_CODE = 182;
-const USSD_CODE = /^[*#][0-9*#+]*#$/;
+// {pin}: the SIM's PIN, filled in by the phone from its own vault.
+const USSD_CODE = /^[*#]([0-9*#+]|\{pin\})*#$/;
 
 /** What a status means for a code rather than a message. */
 const USSD_LABEL: Record<JobStatus, string> = {
@@ -40,6 +41,7 @@ export function UssdPage() {
   const [jobId, setJobId] = useState<string>();
 
   const device = capable.find((d) => d.deviceId === deviceId);
+  const usesPin = code.includes("{pin}");
   const menus = device?.capabilities.includes("ussd_menu") ?? false;
   const replies = repliesRaw
     .split(/[,\n]/)
@@ -133,6 +135,17 @@ export function UssdPage() {
             />
             {code.trim() !== "" && !codeOk && (
               <p className="mt-1 text-xs text-destructive">Un code commence par * ou #, finit par #, et ne contient que des chiffres, * et #.</p>
+            )}
+            {usesPin ? (
+              <p className="mt-1 text-xs text-muted-foreground">
+                <code>{"{pin}"}</code> sera remplacé par le téléphone avec le PIN de la SIM, gardé chez lui — seulement si ce modèle de code y a
+                été approuvé, dans ses plafonds.
+                {device && !device.capabilities.includes("ussd_pin") && " L'app de ce téléphone doit être mise à jour pour cela."}
+              </p>
+            ) : (
+              <p className="mt-1 text-xs text-muted-foreground">
+                Besoin du PIN ? Écrivez <code>{"{pin}"}</code> à sa place : il ne quitte jamais le téléphone.
+              </p>
             )}
           </div>
 

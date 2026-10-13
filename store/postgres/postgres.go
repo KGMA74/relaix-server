@@ -93,6 +93,9 @@ func (s *Store) Events() store.EventStore { return eventStore{s.q} }
 // Inbound implements store.Store.
 func (s *Store) Inbound() store.InboundStore { return inboundStore{s.q} }
 
+// AutomationRuns implements store.Store.
+func (s *Store) AutomationRuns() store.AutomationRunStore { return runStore{s.q} }
+
 // WithTx runs fn in a transaction, rolling back on error or panic.
 //
 // The rollback is deferred rather than only run on the error path so that a
@@ -124,13 +127,14 @@ func (s *Store) WithTx(ctx context.Context, fn func(store.Store) error) error {
 
 // Compile-time proof that this implements the boundary it stands behind.
 var (
-	_ store.Store           = (*Store)(nil)
-	_ store.AccountStore    = accountStore{}
-	_ store.DeviceStore     = deviceStore{}
-	_ store.JobStore        = jobStore{}
-	_ store.EnrollmentStore = enrollmentStore{}
-	_ store.EventStore      = eventStore{}
-	_ store.InboundStore    = inboundStore{}
+	_ store.Store              = (*Store)(nil)
+	_ store.AccountStore       = accountStore{}
+	_ store.DeviceStore        = deviceStore{}
+	_ store.JobStore           = jobStore{}
+	_ store.EnrollmentStore    = enrollmentStore{}
+	_ store.EventStore         = eventStore{}
+	_ store.InboundStore       = inboundStore{}
+	_ store.AutomationRunStore = runStore{}
 )
 
 // translate maps driver errors onto the store's vocabulary, so nothing above

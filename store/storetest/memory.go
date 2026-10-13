@@ -51,6 +51,7 @@ type Store struct {
 	events      []*store.JobEvent
 	nextEventID int64
 	inbound     map[uuid.UUID]*store.InboundMessage
+	runs        map[uuid.UUID]*store.AutomationRun
 
 	// lastJobAt keeps job creation times strictly increasing. Postgres gives
 	// each transaction its own now(), but the wall clock here can return the
@@ -80,6 +81,7 @@ func New() *Store {
 		jobs:        make(map[uuid.UUID]*store.Job),
 		enrollments: make(map[string]*store.EnrollmentToken),
 		inbound:     make(map[uuid.UUID]*store.InboundMessage),
+		runs:        make(map[uuid.UUID]*store.AutomationRun),
 	}
 }
 
@@ -161,6 +163,7 @@ type state struct {
 	events      []*store.JobEvent
 	nextEventID int64
 	inbound     map[uuid.UUID]*store.InboundMessage
+	runs        map[uuid.UUID]*store.AutomationRun
 }
 
 // snapshot deep-copies the state. The copies must be deep: the store mutates
@@ -179,6 +182,10 @@ func (s *Store) snapshot() state {
 	}
 	for k, v := range s.inbound {
 		cp.inbound[k] = copyInbound(v)
+	}
+	cp.runs = make(map[uuid.UUID]*store.AutomationRun, len(s.runs))
+	for k, v := range s.runs {
+		cp.runs[k] = copyRun(v)
 	}
 	for k, v := range s.accounts {
 		c := *v
@@ -210,6 +217,7 @@ func (s *Store) restore(st state) {
 	s.events = st.events
 	s.nextEventID = st.nextEventID
 	s.inbound = st.inbound
+	s.runs = st.runs
 }
 
 // txStore is the handle handed to a WithTx callback. It shares all state with
@@ -466,6 +474,11 @@ func (d deviceStore) Delete(ctx context.Context, id uuid.UUID) error {
 	for _, m := range d.s.inbound {
 		if m.DeviceID != nil && *m.DeviceID == id {
 			m.DeviceID = nil
+		}
+	}
+	for _, r := range d.s.runs {
+		if r.DeviceID != nil && *r.DeviceID == id {
+			r.DeviceID = nil
 		}
 	}
 	return nil

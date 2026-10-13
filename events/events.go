@@ -31,6 +31,7 @@ const (
 	JobCreated         = "job.created"
 	JobUpdated         = "job.updated"
 	SmsReceived        = "sms.received"
+	AutomationRun      = "automation.run"
 )
 
 // Event is one change. Only the fields that name what changed are set.

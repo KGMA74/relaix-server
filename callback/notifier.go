@@ -255,6 +255,9 @@ type InboundPayload struct {
 	Body           string  `json:"body"`
 	ReceivedAt     string  `json:"receivedAt"`
 	Attempt        int     `json:"attempt"`
+	// AutomationID and Fields: set when an automation forwarded it.
+	AutomationID string            `json:"automationId,omitempty"`
+	Fields       map[string]string `json:"fields,omitempty"`
 }
 
 func inboundPayloadFor(m *store.InboundMessage) InboundPayload {
@@ -266,6 +269,10 @@ func inboundPayloadFor(m *store.InboundMessage) InboundPayload {
 		Body:           m.Body,
 		ReceivedAt:     m.ReceivedAt.UTC().Format(time.RFC3339),
 		Attempt:        m.Webhook.Attempts + 1,
+		AutomationID:   m.AutomationID,
+	}
+	if len(m.Fields) > 0 {
+		p.Fields = m.Fields
 	}
 	if m.DeviceID != nil {
 		id := m.DeviceID.String()

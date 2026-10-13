@@ -71,7 +71,7 @@ func (s *Server) buildUSSDJob(req *ussdRequest) (*store.Job, *apiError) {
 	}
 	if !validUSSD(code) {
 		return nil, badRequest("invalid_code",
-			"code must be a USSD string: digits, * and #, starting with * or # and ending with #, e.g. *144#")
+			"code must be a USSD string: digits, * and #, starting with * or # and ending with #, e.g. *144#; {pin} stands for the SIM's PIN kept on the phone")
 	}
 	if len(req.Replies) > maxReplies {
 		return nil, badRequest("too_many_replies", fmt.Sprintf("at most %d replies", maxReplies))
@@ -103,11 +103,13 @@ func (s *Server) buildUSSDJob(req *ussdRequest) (*store.Job, *apiError) {
 
 // validUSSD checks the shape of a USSD string: a service code opens with * or
 // # and closes with #, with digits and separators between. Whether the
-// network knows it is the network's answer to give.
+// network knows it is the network's answer to give. {pin} may stand for the
+// SIM's PIN, which only the phone holds.
 func validUSSD(code string) bool {
 	if len(code) < 2 || utf8.RuneCountInString(code) > maxUSSDRunes {
 		return false
 	}
+	code = strings.ReplaceAll(code, store.PinPlaceholder, "0")
 	if (code[0] != '*' && code[0] != '#') || code[len(code)-1] != '#' {
 		return false
 	}

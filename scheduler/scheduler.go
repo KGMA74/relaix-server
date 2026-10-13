@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -520,8 +521,11 @@ func (s *Scheduler) decideUSSD(
 	// not time.
 	if d != nil {
 		need := store.CapUSSD
-		if len(job.Replies) > 0 {
+		switch {
+		case len(job.Replies) > 0:
 			need = store.CapUSSDMenu
+		case strings.Contains(job.Body, store.PinPlaceholder):
+			need = store.CapUSSDPin
 		}
 		if !d.Can(need) {
 			s.fail(ctx, tx, job, "unsupported_by_device",

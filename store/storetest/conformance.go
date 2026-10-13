@@ -38,6 +38,7 @@ func RunConformance(t *testing.T, newStore Factory) {
 	t.Run("Transactions", func(t *testing.T) { testTransactions(t, newStore) })
 	t.Run("USSD", func(t *testing.T) { testUSSD(t, newStore) })
 	t.Run("Inbound", func(t *testing.T) { testInbound(t, newStore) })
+	t.Run("AutomationRuns", func(t *testing.T) { testRuns(t, newStore) })
 }
 
 func testDevices(t *testing.T, newStore Factory) {

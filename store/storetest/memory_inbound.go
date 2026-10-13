@@ -3,6 +3,7 @@ package storetest
 import (
 	"bytes"
 	"context"
+	"maps"
 	"slices"
 	"strings"
 	"time"
@@ -162,6 +163,7 @@ func copyInbound(m *store.InboundMessage) *store.InboundMessage {
 		sub := *m.SubscriptionID
 		cp.SubscriptionID = &sub
 	}
+	cp.Fields = maps.Clone(m.Fields)
 	cp.Webhook.NextAttemptAt = copyTime(m.Webhook.NextAttemptAt)
 	cp.Webhook.DeliveredAt = copyTime(m.Webhook.DeliveredAt)
 	return &cp

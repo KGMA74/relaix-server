@@ -1,0 +1,63 @@
+{
+  "_comment": "Shared by the gateway (policy), the agent (unit tests) and the dashboard's tester: the three must agree on what matches, what is extracted and what a template renders. Copy, do not fork.",
+  "cases": [
+    {
+      "name": "orange money reception extracts amount, from and ref",
+      "automation": {
+        "enabled": true,
+        "senders": ["OrangeMoney"],
+        "pattern": "Vous avez recu (?<amount>[0-9 ]+) FCFA de (?<from>\\+?[0-9]+)\\. Ref: (?<ref>[A-Z0-9]+\\.[0-9]+)",
+        "conditions": [{ "field": "amount", "op": "gte", "value": "1000" }]
+      },
+      "sms": { "sender": "orangemoney", "body": "Vous avez recu 5 000 FCFA de 70123456. Ref: CI230512.1234. Nouveau solde: 12 500 FCFA", "receivedAt": "2026-10-13T08:00:00Z", "sim": 1 },
+      "match": true,
+      "fields": { "amount": "5 000", "from": "70123456", "ref": "CI230512.1234", "sender": "orangemoney", "sim": "1" },
+      "template": "Merci, {amount} FCFA bien recus (ref {ref}).",
+      "rendered": "Merci, 5 000 FCFA bien recus (ref CI230512.1234)."
+    },
+    {
+      "name": "a condition below its threshold stops the match",
+      "automation": {
+        "enabled": true,
+        "pattern": "recu (?<amount>[0-9 ]+) FCFA",
+        "conditions": [{ "field": "amount", "op": "gt", "value": "10 000" }]
+      },
+      "sms": { "sender": "OrangeMoney", "body": "Vous avez recu 5 000 FCFA", "receivedAt": "2026-10-13T08:00:00Z", "sim": 0 },
+      "match": false
+    },
+    {
+      "name": "another sender does not match",
+      "automation": { "enabled": true, "senders": ["OrangeMoney"], "pattern": "recu" },
+      "sms": { "sender": "MoovMoney", "body": "Vous avez recu 5000 FCFA", "receivedAt": "2026-10-13T08:00:00Z", "sim": 0 },
+      "match": false
+    },
+    {
+      "name": "another SIM does not match",
+      "automation": { "enabled": true, "subscriptionId": 2 },
+      "sms": { "sender": "OrangeMoney", "body": "x", "receivedAt": "2026-10-13T08:00:00Z", "sim": 1 },
+      "match": false
+    },
+    {
+      "name": "a disabled automation never matches",
+      "automation": { "enabled": false },
+      "sms": { "sender": "OrangeMoney", "body": "x", "receivedAt": "2026-10-13T08:00:00Z", "sim": 0 },
+      "match": false
+    },
+    {
+      "name": "no pattern: builtins only, contains is case-insensitive",
+      "automation": { "enabled": true, "conditions": [{ "field": "body", "op": "contains", "value": "SOLDE" }] },
+      "sms": { "sender": "+22670000000", "body": "Votre solde est de 1500 F", "receivedAt": "2026-10-13T08:00:00Z", "sim": 1 },
+      "match": true,
+      "fields": { "sender": "+22670000000", "sim": "1" },
+      "template": "{sender} a ecrit: {body}",
+      "rendered": "+22670000000 a ecrit: Votre solde est de 1500 F"
+    },
+    {
+      "name": "decimal comma",
+      "automation": { "enabled": true, "pattern": "(?<amount>[0-9]+,[0-9]+) EUR", "conditions": [{ "field": "amount", "op": "lt", "value": "10.5" }] },
+      "sms": { "sender": "Bank", "body": "Debit 10,25 EUR", "receivedAt": "2026-10-13T08:00:00Z", "sim": 0 },
+      "match": true,
+      "fields": { "amount": "10,25" }
+    }
+  ]
+}
