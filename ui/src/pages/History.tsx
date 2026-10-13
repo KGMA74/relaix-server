@@ -27,7 +27,9 @@ export function HistoryPage() {
     setParams(next, { replace: true });
   };
 
+  // SMS only: USSD jobs have their own page, where their answers make sense.
   const filter: JobQuery = {
+    kind: "sms",
     status: status ? [status] : undefined,
     deviceId: deviceId || undefined,
     recipient: recipient || undefined,

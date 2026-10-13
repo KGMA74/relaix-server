@@ -10,8 +10,12 @@ export const TERMINAL_STATUSES: JobStatus[] = ["sent", "delivered", "failed", "c
 
 export type JobMode = "immediate" | "queued";
 
+export type JobKind = "sms" | "ussd";
+
 export interface Job {
   jobId: string;
+  /** "sms" sends body to recipient; "ussd" dials body (a code) on deviceId. */
+  kind: JobKind;
   status: JobStatus;
   recipient: string;
   body: string;
@@ -29,6 +33,12 @@ export interface Job {
   expiresAt?: string;
   createdAt: string;
   completedAt?: string;
+  /** USSD: answers typed into the menus (hidden when sensitive). */
+  replies?: string[];
+  /** USSD: what the network displayed, one entry per screen. */
+  responses?: string[];
+  /** USSD: the code and replies carry a secret and are never shown. */
+  sensitive?: boolean;
 }
 
 export interface JobPage {
@@ -54,6 +64,34 @@ export interface SendRequest {
   scheduledAt?: string;
   expiresAt?: string;
   callbackUrl?: string;
+}
+
+export interface UssdRequest {
+  deviceId: string;
+  code: string;
+  subscriptionId?: number;
+  replies?: string[];
+  sensitive?: boolean;
+  mode?: JobMode;
+  expiresAt?: string;
+  callbackUrl?: string;
+}
+
+/** An SMS a phone received and its rules forwarded. */
+export interface InboundMessage {
+  messageId: string;
+  deviceId?: string;
+  subscriptionId?: number;
+  sender: string;
+  body: string;
+  receivedAt: string;
+  createdAt: string;
+  webhook?: { delivered: boolean; attempts: number; lastError?: string };
+}
+
+export interface InboxPage {
+  messages: InboundMessage[];
+  nextCursor?: string;
 }
 
 export interface Health {
@@ -100,6 +138,8 @@ export interface Device {
   availableNow: boolean;
   /** What the device was handed, as the scheduler counts it against its caps. */
   usage: Usage;
+  /** What the agent can do beyond SMS: "ussd", "ussd_menu", "inbound_sms". */
+  capabilities: string[];
 }
 
 export interface UsageCount {
@@ -155,6 +195,14 @@ export interface Policy {
   sims?: SimPolicy[];
   updatedAt?: string;
   limits?: SendLimits;
+  /** Which received SMS the phone forwards. Off unless enabled. */
+  inbound?: InboundRules;
+}
+
+export interface InboundRules {
+  enabled?: boolean;
+  /** Matched whole, ignoring case. Empty, when enabled: every sender. */
+  senders?: string[];
 }
 
 export interface Country {

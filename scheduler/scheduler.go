@@ -402,6 +402,10 @@ func (s *Scheduler) decide(
 		return uuid.Nil, 0, false
 	}
 
+	if job.Kind == store.KindUSSD {
+		return s.decideUSSD(ctx, tx, job, ready, devices, now)
+	}
+
 	// Explicit selection. A caller naming a device usually means a specific
 	// SIM, number or carrier, so it is never silently rerouted: substituting
 	// another device would be wrong in a way the caller cannot detect.
@@ -485,6 +489,72 @@ func (s *Scheduler) decide(
 	return uuid.Nil, 0, false
 }
 
+// decideUSSD places a USSD job. It always names its device — a code runs
+// against one SIM's account, and another phone's answer would be about
+// another account — so this is the explicit-selection path of decide, minus
+// what only concerns SMS: recipient rules and send limits. The device's
+// availability hours still apply: they say when its owner lets it work.
+func (s *Scheduler) decideUSSD(
+	ctx context.Context,
+	tx store.Store,
+	job *store.Job,
+	ready []hub.DeviceState,
+	devices fleet,
+	now time.Time,
+) (uuid.UUID, int32, bool) {
+	if job.RequestedDeviceID == nil {
+		s.fail(ctx, tx, job, "device_required", "a USSD job must name its device", now)
+		return uuid.Nil, 0, false
+	}
+	want := *job.RequestedDeviceID
+	d, mine := devices.devices[want]
+	if !mine {
+		if _, known := devices.all[want]; known {
+			s.fail(ctx, tx, job, "device_not_allowed",
+				"the requested device does not send for this account", now)
+			return uuid.Nil, 0, false
+		}
+	}
+	// An agent that does not list the capability would drop the job without a
+	// word. Failed rather than kept waiting: it takes an update of the app,
+	// not time.
+	if d != nil {
+		need := store.CapUSSD
+		if len(job.Replies) > 0 {
+			need = store.CapUSSDMenu
+		}
+		if !d.Can(need) {
+			s.fail(ctx, tx, job, "unsupported_by_device",
+				"the requested device's agent cannot run this USSD job ("+need+"); update the app", now)
+			return uuid.Nil, 0, false
+		}
+	}
+
+	var sub int32
+	if job.SubscriptionID != nil {
+		sub = *job.SubscriptionID
+	}
+	open := d == nil || d.Policy.Availability.Open(now, d.TimeZone)
+	if devices.enabled(want) && open {
+		for _, r := range ready {
+			if r.DeviceID == want {
+				return want, sub, true
+			}
+		}
+	}
+	if job.Mode == store.ModeImmediate {
+		reason := "requested device is not ready and mode is immediate"
+		switch {
+		case !devices.enabled(want):
+			reason = "requested device is disabled and mode is immediate"
+		case !open:
+			reason = "requested device is outside its availability hours and mode is immediate"
+		}
+		s.fail(ctx, tx, job, "device_unavailable", reason, now)
+	}
+	return uuid.Nil, 0, false
+}
+
 // pick chooses the least-loaded ready device, starting from a rotating offset
 // so that ties do not always resolve to the same phone.
 func (s *Scheduler) pick(ready []hub.DeviceState, used map[uuid.UUID]int) (uuid.UUID, bool) {
@@ -516,6 +586,9 @@ func (s *Scheduler) push(ctx context.Context, pending []dispatch, now time.Time)
 			Payload: &v1.ServerMessage_SendSmsJob{
 				SendSmsJob: toProto(p.job, p.subscriptionID),
 			},
+		}
+		if p.job.Kind == store.KindUSSD {
+			msg.Payload = &v1.ServerMessage_UssdJob{UssdJob: toUSSDProto(p.job, p.subscriptionID)}
 		}
 
 		err := s.hub.SendJob(ctx, p.deviceID, msg)
@@ -601,5 +674,19 @@ func toProto(j *store.Job, sub int32) *v1.SendSmsJob {
 	// Left at zero otherwise, which the contract defines as "the handset's
 	// default SMS subscription" — the behaviour every job had before the field
 	// existed.
+	return msg
+}
+
+// toUSSDProto converts a USSD job to the message pushed to a device.
+func toUSSDProto(j *store.Job, sub int32) *v1.UssdJob {
+	msg := &v1.UssdJob{
+		JobId:          j.ID.String(),
+		Code:           j.Body,
+		SubscriptionId: sub,
+		Replies:        j.Replies,
+	}
+	if j.ExpiresAt != nil {
+		msg.ExpiresAt = timestamppb.New(*j.ExpiresAt)
+	}
 	return msg
 }

@@ -36,6 +36,8 @@ type Policy struct {
 	UpdatedAt *time.Time  `json:"updatedAt,omitempty"`
 	// Limits cap what the device is handed, all SIMs together.
 	Limits Limits `json:"limits"`
+	// Inbound is which received SMS the phone forwards.
+	Inbound Inbound `json:"inbound"`
 }
 
 // Limits cap how many messages a device or a SIM is handed over sliding
@@ -115,6 +117,7 @@ func invalid(format string, args ...any) error {
 func Normalize(p Policy) Policy {
 	p.Availability = normalizeAvailability(p.Availability)
 	p.Accept = normalizeAccept(p.Accept)
+	p.Inbound = normalizeInbound(p.Inbound)
 	sims := make([]SimPolicy, 0, len(p.Sims))
 	for _, s := range p.Sims {
 		s.Accept = normalizeAccept(s.Accept)
@@ -159,6 +162,9 @@ func Validate(p Policy) error {
 		return err
 	}
 	if err := validateLimits(p.Limits, "limits"); err != nil {
+		return err
+	}
+	if err := validateInbound(p.Inbound); err != nil {
 		return err
 	}
 	seen := map[int32]bool{}

@@ -37,6 +37,7 @@ type Store interface {
 	Jobs() JobStore
 	Enrollments() EnrollmentStore
 	Events() EventStore
+	Inbound() InboundStore
 
 	// WithTx runs fn inside a transaction, passing a Store scoped to it.
 	// Returning a non-nil error rolls back. Nesting is not supported: the Store
@@ -133,7 +134,7 @@ type JobStore interface {
 	// CountDispatched counts, per device and SIM, the messages handed out
 	// since dayAgo and since hourAgo: what send limits are checked against.
 	// Messages still in flight count, as do those sent; ones released, failed
-	// or cancelled do not.
+	// or cancelled do not, nor do USSD jobs: carriers meter SMS.
 	CountDispatched(ctx context.Context, hourAgo, dayAgo time.Time) ([]DispatchCount, error)
 
 	// Release returns an assigned job to pending, for when a device refused it
@@ -144,7 +145,8 @@ type JobStore interface {
 	// Complete records a terminal outcome from a JobResult. Results are
 	// at-least-once, so a repeat for a job already in the same terminal state
 	// must be a no-op rather than an error; a late DELIVERED after SENT is a
-	// legitimate transition and must be accepted.
+	// legitimate transition and must be accepted. A sensitive job loses its
+	// Body and Replies here, as on Cancel: over, it has no use for its secret.
 	Complete(ctx context.Context, id uuid.UUID, r JobResult) error
 
 	// Cancel withdraws a job. Returns ErrConflict once the job has reached a
@@ -164,8 +166,9 @@ type JobStore interface {
 	// which an offset could not: every insert would shift the next page.
 	List(ctx context.Context, f JobFilter) ([]*Job, error)
 
-	// CountByStatus counts jobs created at or after since, per status. Statuses
-	// with no jobs are absent rather than zero.
+	// CountByStatus counts SMS jobs created at or after since, per status.
+	// Statuses with no jobs are absent rather than zero. USSD jobs are not
+	// messages, and are left out of this and of CountByBucket.
 	CountByStatus(ctx context.Context, scope Scope, since time.Time) (map[JobStatus]int, error)
 
 	// CountByBucket counts jobs created at or after from, per status, in
@@ -202,6 +205,9 @@ type JobResult struct {
 	ErrorMessage string
 	PartsSent    int
 	CompletedAt  time.Time
+	// Responses is what the network displayed, for a USSD job. Empty leaves
+	// the stored ones alone.
+	Responses []string
 }
 
 // AccountStore keeps the accounts everything else is scoped by.
@@ -237,6 +243,27 @@ type EnrollmentStore interface {
 	// DeleteExpired sweeps tokens that ran out without being redeemed, and
 	// reports how many it removed.
 	DeleteExpired(ctx context.Context, before time.Time) (int64, error)
+}
+
+// InboundStore keeps the SMS phones received and forwarded.
+type InboundStore interface {
+	// Record stores a message once per device and DeviceRef. It reports
+	// whether this call created it: a resend of one already recorded returns
+	// the stored message and false, and must not be notified again.
+	Record(ctx context.Context, m *InboundMessage) (*InboundMessage, bool, error)
+
+	// Get returns one message, or ErrNotFound.
+	Get(ctx context.Context, id uuid.UUID) (*InboundMessage, error)
+
+	// List returns messages matching f, most recently received first —
+	// ordered by ReceivedAt then ID, both descending, which a cursor resumes.
+	List(ctx context.Context, f InboundFilter) ([]*InboundMessage, error)
+
+	// The webhook lifecycle, with the same contract as the job callbacks'.
+	ClaimWebhooksDue(ctx context.Context, now time.Time, limit int) ([]*InboundMessage, error)
+	MarkWebhookDelivered(ctx context.Context, id uuid.UUID, at time.Time) error
+	ScheduleWebhookRetry(ctx context.Context, id uuid.UUID, nextAt time.Time, lastErr string) error
+	AbandonWebhook(ctx context.Context, id uuid.UUID, reason string) error
 }
 
 // EventStore is the append-only audit trail. It has no update or delete: an

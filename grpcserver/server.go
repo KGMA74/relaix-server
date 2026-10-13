@@ -49,6 +49,10 @@ type Options struct {
 	// live stream. Nil publishes nowhere.
 	Events *events.Broker
 
+	// InboundWebhook gives the URL an account's received SMS are posted to,
+	// resolved as each message is recorded. Nil, or an empty URL: none.
+	InboundWebhook func(ctx context.Context, account uuid.UUID) (string, error)
+
 	Now    func() time.Time
 	Logger *slog.Logger
 }
@@ -233,6 +237,8 @@ func (s *Server) readLoop(
 			s.onJobResult(ctx, device, payload.JobResult, log)
 		case *v1.DeviceMessage_PolicyUpdate:
 			s.onPolicyUpdate(ctx, device, payload.PolicyUpdate, log)
+		case *v1.DeviceMessage_SmsReceived:
+			s.onSmsReceived(ctx, device, payload.SmsReceived, log)
 		case *v1.DeviceMessage_Leave:
 			// Ends the stream: the device it belonged to no longer exists.
 			return s.onLeave(ctx, device, payload.Leave, log)
@@ -475,6 +481,7 @@ func (s *Server) onJobResult(ctx context.Context, device *store.Device, res *v1.
 		ErrorMessage: res.GetErrorMessage(),
 		PartsSent:    int(res.GetPartsSent()),
 		CompletedAt:  completed,
+		Responses:    res.GetResponses(),
 	}
 
 	// Results are at-least-once, so a repeat of a terminal state is expected
@@ -561,6 +568,7 @@ func deviceFromProto(i *v1.DeviceInfo) *store.Device {
 		Carrier:      i.GetCarrier(),
 		Sims:         simInfoFromProto(i.GetSims()),
 		TimeZone:     i.GetTimeZone(),
+		Capabilities: i.GetCapabilities(),
 	}
 }
 

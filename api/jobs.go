@@ -52,17 +52,45 @@ type sendRequest struct {
 	SubscriptionID *int32 `json:"subscriptionId,omitempty"`
 }
 
+func (r *sendRequest) options() *jobOptions {
+	return &jobOptions{
+		DeviceID: r.DeviceID, Mode: r.Mode, Priority: r.Priority,
+		ScheduledAt: r.ScheduledAt, ExpiresAt: r.ExpiresAt, CallbackURL: r.CallbackURL,
+		SubscriptionID: r.SubscriptionID,
+	}
+}
+
+// jobOptions are the fields every kind of job takes: where it runs, when, and
+// whom to tell.
+type jobOptions struct {
+	DeviceID       *string
+	Mode           string
+	Priority       int
+	ScheduledAt    *string
+	ExpiresAt      *string
+	CallbackURL    string
+	SubscriptionID *int32
+}
+
 // jobResponse is what the API says about a job. It is deliberately not the
 // store type: the database schema is free to change without breaking callers.
 type jobResponse struct {
-	JobID          string  `json:"jobId"`
-	Status         string  `json:"status"`
-	Recipient      string  `json:"recipient"`
-	Body           string  `json:"body"`
-	Mode           string  `json:"mode"`
-	Priority       int     `json:"priority"`
-	DeviceID       *string `json:"deviceId,omitempty"`
-	SubscriptionID *int32  `json:"subscriptionId,omitempty"`
+	JobID string `json:"jobId"`
+	// Kind is "sms" or "ussd".
+	Kind      string `json:"kind"`
+	Status    string `json:"status"`
+	Recipient string `json:"recipient"`
+	// Body is the SMS text, or the USSD code. Empty for a sensitive job.
+	Body string `json:"body"`
+	// Replies, Responses and Sensitive are a USSD job's: what is typed into
+	// its menus (never shown when sensitive), and what the network displayed.
+	Replies        []string `json:"replies,omitempty"`
+	Responses      []string `json:"responses,omitempty"`
+	Sensitive      bool     `json:"sensitive,omitempty"`
+	Mode           string   `json:"mode"`
+	Priority       int      `json:"priority"`
+	DeviceID       *string  `json:"deviceId,omitempty"`
+	SubscriptionID *int32   `json:"subscriptionId,omitempty"`
 	// SentFromSubscriptionID is the SIM the job was handed to — the requested
 	// one or the one the device's rules picked. Absent for the phone's
 	// default, or before assignment.
@@ -78,9 +106,6 @@ type jobResponse struct {
 }
 
 func (s *Server) handleSend(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	p := principal(r)
-
 	var req sendRequest
 	if err := decodeJSON(w, r, s.opts.MaxBodyBytes, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_json", err.Error())
@@ -92,13 +117,37 @@ func (s *Server) handleSend(w http.ResponseWriter, r *http.Request) {
 		writeError(w, apiErr.status, apiErr.code, apiErr.message)
 		return
 	}
-	for _, j := range jobs {
-		j.AccountID = p.AccountID
+	created, ok := s.createJobs(w, r, jobs)
+	if !ok {
+		return
 	}
+
+	// 202, not 201: the gateway has accepted responsibility for the message,
+	// not sent it. Saying 201 Created would invite callers to read it as done.
+	//
 	// The shape of the request decides the shape of the reply: a caller who
 	// sent one recipient gets the object it always got, and only the plural
 	// form gets a list.
-	batch := len(req.Recipients) > 0
+	if len(req.Recipients) == 0 {
+		writeJSON(w, http.StatusAccepted, toJobResponse(created[0]))
+		return
+	}
+	out := make([]jobResponse, 0, len(created))
+	for _, c := range created {
+		out = append(out, toJobResponse(c))
+	}
+	writeJSON(w, http.StatusAccepted, map[string]any{"jobs": out})
+}
+
+// createJobs checks what one request asked for and stores its jobs, all or
+// none, answering the caller itself when that fails. The jobs share their
+// options — device, mode — so the first one speaks for all.
+func (s *Server) createJobs(w http.ResponseWriter, r *http.Request, jobs []*store.Job) ([]*store.Job, bool) {
+	ctx := r.Context()
+	p := principal(r)
+	for _, j := range jobs {
+		j.AccountID = p.AccountID
+	}
 	job := jobs[0]
 
 	// A device of another account is answered like one that does not exist.
@@ -109,11 +158,11 @@ func (s *Server) handleSend(w http.ResponseWriter, r *http.Request) {
 		dev, err := s.store.Devices().Get(ctx, *job.RequestedDeviceID)
 		if errors.Is(err, store.ErrNotFound) || (err == nil && !p.Owns(dev.AccountID)) {
 			writeError(w, http.StatusBadRequest, "unknown_device", "no such device")
-			return
+			return nil, false
 		}
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "internal", "could not read device")
-			return
+			return nil, false
 		}
 	}
 
@@ -128,12 +177,12 @@ func (s *Server) handleSend(w http.ResponseWriter, r *http.Request) {
 		ok, err := s.hasReadyDevice(ctx, job.AccountID, job.RequestedDeviceID)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "internal", "could not check device availability")
-			return
+			return nil, false
 		}
 		if !ok {
 			writeError(w, http.StatusServiceUnavailable, "no_device_available",
 				"no ready device for an immediate send")
-			return
+			return nil, false
 		}
 	}
 
@@ -158,31 +207,19 @@ func (s *Server) handleSend(w http.ResponseWriter, r *http.Request) {
 	var refused *Refusal
 	if errors.As(err, &refused) {
 		writeError(w, refused.Status, refused.Code, refused.Message)
-		return
+		return nil, false
 	}
 	if err != nil {
 		s.opts.Logger.Error("could not create jobs", "count", len(jobs), "err", err)
 		writeError(w, http.StatusInternalServerError, "internal", "could not create job")
-		return
+		return nil, false
 	}
 
 	for _, c := range created {
 		s.event(ctx, c.ID, store.JobPending, "submitted via api")
 		s.opts.Events.Publish(events.Event{Type: events.JobCreated, JobID: c.ID.String(), Status: string(c.Status), AccountID: c.AccountID})
 	}
-
-	// 202, not 201: the gateway has accepted responsibility for the message,
-	// not sent it. Saying 201 Created would invite callers to read it as done.
-	if !batch {
-		writeJSON(w, http.StatusAccepted, toJobResponse(created[0]))
-		return
-	}
-
-	out := make([]jobResponse, 0, len(created))
-	for _, c := range created {
-		out = append(out, toJobResponse(c))
-	}
-	writeJSON(w, http.StatusAccepted, map[string]any{"jobs": out})
+	return created, true
 }
 
 func (s *Server) handleGetJob(w http.ResponseWriter, r *http.Request) {
@@ -309,6 +346,29 @@ func (s *Server) buildJobs(req *sendRequest) ([]*store.Job, *apiError) {
 		return nil, badRequest("body_too_long", "body exceeds the maximum length")
 	}
 
+	job, apiErr := s.baseJob(req.options())
+	if apiErr != nil {
+		return nil, apiErr
+	}
+	job.Kind = store.KindSMS
+	job.Body = req.Body
+
+	jobs := make([]*store.Job, 0, len(recipients))
+	for _, r := range recipients {
+		// Copy by value: sharing one struct would give every job the same
+		// pointer identity, and Create writing an id back would overwrite the
+		// previous one.
+		clone := *job
+		clone.Recipient = r
+		jobs = append(jobs, &clone)
+	}
+	return jobs, nil
+}
+
+// baseJob validates the options every kind of job takes, once: everything but
+// the recipient is shared by a fan-out, and validating the same schedule fifty
+// times would only multiply the ways the answers could disagree.
+func (s *Server) baseJob(req *jobOptions) (*store.Job, *apiError) {
 	mode := store.JobMode(req.Mode)
 	if req.Mode == "" {
 		// Queued by default: eventual delivery is the safer assumption, and a
@@ -319,11 +379,7 @@ func (s *Server) buildJobs(req *sendRequest) ([]*store.Job, *apiError) {
 		return nil, badRequest("invalid_mode", `mode must be "immediate" or "queued"`)
 	}
 
-	// One prototype validated once, then copied per recipient: everything but
-	// the number is shared, and validating the same schedule fifty times would
-	// only multiply the ways the answers could disagree.
 	job := &store.Job{
-		Body:     req.Body,
 		Mode:     mode,
 		Priority: req.Priority,
 		Status:   store.JobPending,
@@ -396,17 +452,7 @@ func (s *Server) buildJobs(req *sendRequest) ([]*store.Job, *apiError) {
 		at := now
 		job.Callback.NextAttemptAt = &at
 	}
-
-	jobs := make([]*store.Job, 0, len(recipients))
-	for _, r := range recipients {
-		// Copy by value: sharing one struct would give every job the same
-		// pointer identity, and Create writing an id back would overwrite the
-		// previous one.
-		clone := *job
-		clone.Recipient = r
-		jobs = append(jobs, &clone)
-	}
-	return jobs, nil
+	return job, nil
 }
 
 // hasReadyDevice reports whether an immediate send could be placed right now.
@@ -463,9 +509,13 @@ func (s *Server) event(ctx context.Context, jobID uuid.UUID, status store.JobSta
 func toJobResponse(j *store.Job) jobResponse {
 	resp := jobResponse{
 		JobID:     j.ID.String(),
+		Kind:      string(j.Kind),
 		Status:    string(j.Status),
 		Recipient: j.Recipient,
 		Body:      j.Body,
+		Replies:   j.Replies,
+		Responses: j.Responses,
+		Sensitive: j.Sensitive,
 		Mode:      string(j.Mode),
 		Priority:  j.Priority,
 		Attempts:  j.Attempts,
@@ -480,6 +530,11 @@ func toJobResponse(j *store.Job) jobResponse {
 	} else if j.RequestedDeviceID != nil {
 		id := j.RequestedDeviceID.String()
 		resp.DeviceID = &id
+	}
+	if j.Sensitive {
+		// Not even while the job waits: whoever reads the history has no
+		// business with the PIN in it.
+		resp.Body, resp.Replies = "", nil
 	}
 	resp.SubscriptionID = j.SubscriptionID
 	resp.SentFromSubscriptionID = j.AssignedSubscriptionID

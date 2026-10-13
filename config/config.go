@@ -9,6 +9,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -37,6 +38,11 @@ type Config struct {
 	// callbacks, and validated here rather than at the first delivery, because
 	// discovering it at 3am from a failed callback is worse than at startup.
 	CallbackSecret string
+
+	// InboundWebhookURL receives every SMS the phones forward (their rules
+	// say which), signed like the callbacks. Empty: received SMS are only
+	// kept and listed (GET /inbox).
+	InboundWebhookURL string
 
 	// HardwareIDKey keys the HMAC stored in place of each phone's hardware id
 	// (devices.Options.HardwareIDKey). Must not change once phones have
@@ -110,6 +116,7 @@ func Load(args []string) (Config, error) {
 	fs.StringVar(&cfg.DatabaseURL, "database-url", cfg.DatabaseURL, "Postgres DSN")
 	fs.StringVar(&cfg.APIKey, "api-key", cfg.APIKey, "bearer key for the REST API; empty disables auth")
 	fs.StringVar(&cfg.CallbackSecret, "callback-secret", cfg.CallbackSecret, "HMAC secret for outbound callbacks")
+	fs.StringVar(&cfg.InboundWebhookURL, "inbound-webhook-url", cfg.InboundWebhookURL, "URL received SMS are posted to")
 	fs.StringVar(&cfg.HardwareIDKey, "hardware-id-key", cfg.HardwareIDKey, "HMAC key for stored phone hardware ids; keep it stable")
 	fs.StringVar(&cfg.PublicURL, "public-url", cfg.PublicURL, "address agents should dial, encoded into enrollment QR codes")
 	fs.DurationVar(&cfg.EnrollTokenTTL, "enroll-token-ttl", cfg.EnrollTokenTTL, "lifetime of a minted enrollment token")
@@ -146,6 +153,7 @@ func applyEnv(cfg *Config) error {
 	str("RELAIX_DATABASE_URL", &cfg.DatabaseURL)
 	str("RELAIX_API_KEY", &cfg.APIKey)
 	str("RELAIX_CALLBACK_SECRET", &cfg.CallbackSecret)
+	str("RELAIX_INBOUND_WEBHOOK_URL", &cfg.InboundWebhookURL)
 	str("RELAIX_HARDWARE_ID_KEY", &cfg.HardwareIDKey)
 	str("RELAIX_PUBLIC_URL", &cfg.PublicURL)
 	str("RELAIX_LOG_LEVEL", &cfg.LogLevel)
@@ -213,6 +221,12 @@ func (c *Config) Validate() error {
 	}
 	if c.HTTPAddr == "" {
 		problems = append(problems, "http address is required")
+	}
+
+	if c.InboundWebhookURL != "" {
+		if u, err := url.Parse(c.InboundWebhookURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+			problems = append(problems, "inbound webhook URL must be an absolute http or https URL")
+		}
 	}
 
 	if (c.TLSCertFile == "") != (c.TLSKeyFile == "") {

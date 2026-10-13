@@ -9,10 +9,12 @@ import "./index.css";
 import { LiveProvider } from "./lib/live";
 import { DevicesPage } from "./pages/Devices";
 import { HistoryPage } from "./pages/History";
+import { InboxPage } from "./pages/Inbox";
 import { IntegrationPage } from "./pages/Integration";
 import { LoginPage } from "./pages/Login";
 import { OverviewPage } from "./pages/Overview";
 import { SendPage } from "./pages/Send";
+import { UssdPage } from "./pages/Ussd";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -35,6 +37,8 @@ function App() {
         <Route index element={<OverviewPage />} />
         <Route path="send" element={<SendPage />} />
         <Route path="history" element={<HistoryPage />} />
+        <Route path="inbox" element={<InboxPage />} />
+        <Route path="ussd" element={<UssdPage />} />
         <Route path="devices" element={<DevicesPage />} />
         <Route path="integration" element={<IntegrationPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />

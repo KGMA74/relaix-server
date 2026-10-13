@@ -50,6 +50,7 @@ type Store struct {
 	enrollments map[string]*store.EnrollmentToken // token hash -> token
 	events      []*store.JobEvent
 	nextEventID int64
+	inbound     map[uuid.UUID]*store.InboundMessage
 
 	// lastJobAt keeps job creation times strictly increasing. Postgres gives
 	// each transaction its own now(), but the wall clock here can return the
@@ -78,6 +79,7 @@ func New() *Store {
 		tokenToID:   make(map[string]uuid.UUID),
 		jobs:        make(map[uuid.UUID]*store.Job),
 		enrollments: make(map[string]*store.EnrollmentToken),
+		inbound:     make(map[uuid.UUID]*store.InboundMessage),
 	}
 }
 
@@ -158,6 +160,7 @@ type state struct {
 	enrollments map[string]*store.EnrollmentToken
 	events      []*store.JobEvent
 	nextEventID int64
+	inbound     map[uuid.UUID]*store.InboundMessage
 }
 
 // snapshot deep-copies the state. The copies must be deep: the store mutates
@@ -172,6 +175,10 @@ func (s *Store) snapshot() state {
 		enrollments: make(map[string]*store.EnrollmentToken, len(s.enrollments)),
 		events:      make([]*store.JobEvent, 0, len(s.events)),
 		nextEventID: s.nextEventID,
+		inbound:     make(map[uuid.UUID]*store.InboundMessage, len(s.inbound)),
+	}
+	for k, v := range s.inbound {
+		cp.inbound[k] = copyInbound(v)
 	}
 	for k, v := range s.accounts {
 		c := *v
@@ -202,6 +209,7 @@ func (s *Store) restore(st state) {
 	s.enrollments = st.enrollments
 	s.events = st.events
 	s.nextEventID = st.nextEventID
+	s.inbound = st.inbound
 }
 
 // txStore is the handle handed to a WithTx callback. It shares all state with
@@ -255,6 +263,7 @@ func (d deviceStore) Create(ctx context.Context, in *store.Device, tokenHash str
 	}
 	cp.UpdatedAt = cp.CreatedAt
 	cp.Sims = append([]store.SimInfo(nil), in.Sims...)
+	cp.Capabilities = slices.Clone(in.Capabilities)
 	cp.Health = copyHealth(in.Health)
 	cp.AccountID = store.AccountOrDefault(in.AccountID)
 	// A newly enrolled device is enabled, whatever the caller passed. The
@@ -343,6 +352,7 @@ func (d deviceStore) Rekey(ctx context.Context, id uuid.UUID, in *store.Device, 
 	dev.AgentVersion = in.AgentVersion
 	dev.Carrier = in.Carrier
 	dev.TimeZone = in.TimeZone
+	dev.Capabilities = slices.Clone(in.Capabilities)
 	dev.Sims = append([]store.SimInfo(nil), in.Sims...)
 	dev.UpdatedAt = time.Now()
 	return copyDevice(dev), nil
@@ -382,6 +392,7 @@ func (d deviceStore) UpdateInfo(ctx context.Context, id uuid.UUID, in *store.Dev
 	dev.AgentVersion = in.AgentVersion
 	dev.Carrier = in.Carrier
 	dev.TimeZone = in.TimeZone
+	dev.Capabilities = slices.Clone(in.Capabilities)
 	dev.Sims = append([]store.SimInfo(nil), in.Sims...)
 	dev.UpdatedAt = time.Now()
 	return nil
@@ -452,6 +463,11 @@ func (d deviceStore) Delete(ctx context.Context, id uuid.UUID) error {
 			j.AssignedDeviceID = nil
 		}
 	}
+	for _, m := range d.s.inbound {
+		if m.DeviceID != nil && *m.DeviceID == id {
+			m.DeviceID = nil
+		}
+	}
 	return nil
 }
 
@@ -473,6 +489,11 @@ func (j jobStore) Create(ctx context.Context, in *store.Job) (*store.Job, error)
 	if cp.Status == "" {
 		cp.Status = store.JobPending
 	}
+	if cp.Kind == "" {
+		cp.Kind = store.KindSMS
+	}
+	cp.Replies = slices.Clone(in.Replies)
+	cp.Responses = nil
 	cp.AccountID = store.AccountOrDefault(cp.AccountID)
 	if cp.CreatedAt.IsZero() {
 		cp.CreatedAt = time.Now()
@@ -585,6 +606,9 @@ func (j jobStore) CountDispatched(ctx context.Context, hourAgo, dayAgo time.Time
 		default:
 			continue
 		}
+		if job.Kind != store.KindSMS {
+			continue
+		}
 		k := key{device: *job.AssignedDeviceID}
 		if job.AssignedSubscriptionID != nil {
 			k.sub, k.hasSub = *job.AssignedSubscriptionID, true
@@ -659,6 +683,10 @@ func (j jobStore) Complete(ctx context.Context, id uuid.UUID, r store.JobResult)
 	if r.PartsSent > 0 {
 		job.PartsSent = r.PartsSent
 	}
+	if len(r.Responses) > 0 {
+		job.Responses = slices.Clone(r.Responses)
+	}
+	wipeSensitive(job)
 	job.CompletedAt = &at
 	job.UpdatedAt = at
 	return nil
@@ -679,6 +707,7 @@ func (j jobStore) Cancel(ctx context.Context, id uuid.UUID, reason string) error
 	now := time.Now()
 	job.Status = store.JobCancelled
 	job.ErrorMessage = reason
+	wipeSensitive(job)
 	job.CompletedAt = &now
 	job.UpdatedAt = now
 	return nil
@@ -720,6 +749,9 @@ func (j jobStore) List(ctx context.Context, f store.JobFilter) ([]*store.Job, er
 
 func matchesFilter(job *store.Job, f store.JobFilter) bool {
 	if f.AccountID != nil && job.AccountID != *f.AccountID {
+		return false
+	}
+	if len(f.Kinds) > 0 && !slices.Contains(f.Kinds, job.Kind) {
 		return false
 	}
 	if len(f.Statuses) > 0 && !slices.Contains(f.Statuses, job.Status) {
@@ -766,7 +798,7 @@ func (j jobStore) CountByBucket(ctx context.Context, scope store.Scope, from tim
 	}
 	counts := map[key]int{}
 	for _, job := range j.s.jobs {
-		if job.CreatedAt.Before(from) || !scope.Includes(job.AccountID) {
+		if job.CreatedAt.Before(from) || !scope.Includes(job.AccountID) || job.Kind != store.KindSMS {
 			continue
 		}
 		n := job.CreatedAt.Sub(from) / bucket
@@ -787,7 +819,7 @@ func (j jobStore) CountByStatus(ctx context.Context, scope store.Scope, since ti
 	}
 	out := make(map[store.JobStatus]int)
 	for _, job := range j.s.jobs {
-		if !job.CreatedAt.Before(since) && scope.Includes(job.AccountID) {
+		if !job.CreatedAt.Before(since) && scope.Includes(job.AccountID) && job.Kind == store.KindSMS {
 			out[job.Status]++
 		}
 	}
@@ -982,6 +1014,9 @@ func (s *Store) SeedJob(j *store.Job) *store.Job {
 	if cp.Status == "" {
 		cp.Status = store.JobPending
 	}
+	if cp.Kind == "" {
+		cp.Kind = store.KindSMS
+	}
 	if cp.CreatedAt.IsZero() {
 		cp.CreatedAt = time.Now()
 	}
@@ -1041,6 +1076,7 @@ func copyDevice(d *store.Device) *store.Device {
 	}
 	cp := *d
 	cp.Sims = append([]store.SimInfo(nil), d.Sims...)
+	cp.Capabilities = slices.Clone(d.Capabilities)
 	cp.Health = copyHealth(d.Health)
 	cp.LastSeenAt = copyTime(d.LastSeenAt)
 	return &cp
@@ -1078,6 +1114,8 @@ func copyJob(j *store.Job) *store.Job {
 	}
 	cp.Callback.NextAttemptAt = copyTime(j.Callback.NextAttemptAt)
 	cp.Callback.DeliveredAt = copyTime(j.Callback.DeliveredAt)
+	cp.Replies = slices.Clone(j.Replies)
+	cp.Responses = slices.Clone(j.Responses)
 	return &cp
 }
 
@@ -1147,4 +1185,13 @@ func (a accountStore) List(ctx context.Context) ([]*store.Account, error) {
 		return strings.Compare(x.ID.String(), y.ID.String())
 	})
 	return out, nil
+}
+
+// wipeSensitive mirrors the Postgres store: a sensitive job loses its code and
+// replies once it is over.
+func wipeSensitive(job *store.Job) {
+	if job.Sensitive {
+		job.Body = ""
+		job.Replies = nil
+	}
 }

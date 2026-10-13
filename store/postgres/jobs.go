@@ -19,22 +19,23 @@ const jobColumns = `
 	assigned_subscription_id, account_id,
 	status, error_code, error_message, parts_sent, attempts,
 	callback_url, callback_attempts, callback_next_at, callback_delivered_at, callback_last_error,
-	created_at, updated_at, assigned_at, completed_at`
+	created_at, updated_at, assigned_at, completed_at,
+	kind, replies, responses, sensitive`
 
 func (j jobStore) Create(ctx context.Context, in *store.Job) (*store.Job, error) {
 	const q = `
 		INSERT INTO jobs (
 			recipient, body, mode, priority, scheduled_at, expires_at,
 			requested_device_id, subscription_id, callback_url, callback_next_at,
-			account_id
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+			account_id, kind, replies, sensitive
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
 		RETURNING ` + jobColumns
 
 	row := j.q.QueryRow(ctx, q,
 		in.Recipient, in.Body, string(in.Mode), in.Priority,
 		in.ScheduledAt, in.ExpiresAt, in.RequestedDeviceID, in.SubscriptionID,
 		in.Callback.URL, in.Callback.NextAttemptAt,
-		store.AccountOrDefault(in.AccountID),
+		store.AccountOrDefault(in.AccountID), string(kindOrSMS(in.Kind)), nonNil(in.Replies), in.Sensitive,
 	)
 	job, err := scanJob(row)
 	return job, translate(err)
@@ -99,6 +100,7 @@ func (j jobStore) CountDispatched(ctx context.Context, hourAgo, dayAgo time.Time
 		WHERE assigned_at >= $2
 			AND assigned_device_id IS NOT NULL
 			AND status IN ('assigned', 'sent', 'delivered')
+			AND kind = 'sms'
 		GROUP BY assigned_device_id, assigned_subscription_id`
 
 	rows, err := j.q.Query(ctx, q, hourAgo, dayAgo)
@@ -148,11 +150,13 @@ func (j jobStore) Complete(ctx context.Context, id uuid.UUID, r store.JobResult)
 	// parts_sent is only overwritten when the result carries a count. A late
 	// DELIVERED report carries none, and a plain assignment would wipe the
 	// number the SENT result gave — which is what callers reconcile cost
-	// against.
+	// against. Responses follow the same rule.
 	const q = `
 		UPDATE jobs SET
 			status = $2, error_code = $3, error_message = $4,
 			parts_sent = CASE WHEN $5::int > 0 THEN $5::int ELSE parts_sent END,
+			responses = CASE WHEN cardinality($7::text[]) > 0 THEN $7::text[] ELSE responses END,
+			` + wipeSensitive + `,
 			completed_at = $6, updated_at = $6
 		WHERE id = $1
 		  AND (
@@ -161,7 +165,7 @@ func (j jobStore) Complete(ctx context.Context, id uuid.UUID, r store.JobResult)
 		  )`
 
 	tag, err := j.q.Exec(ctx, q, id,
-		string(r.Status), r.ErrorCode, r.ErrorMessage, r.PartsSent, r.CompletedAt)
+		string(r.Status), r.ErrorCode, r.ErrorMessage, r.PartsSent, r.CompletedAt, nonNil(r.Responses))
 	if err != nil {
 		return translate(err)
 	}
@@ -186,7 +190,7 @@ func (j jobStore) Complete(ctx context.Context, id uuid.UUID, r store.JobResult)
 func (j jobStore) Cancel(ctx context.Context, id uuid.UUID, reason string) error {
 	const q = `
 		UPDATE jobs SET
-			status = 'cancelled', error_message = $2,
+			status = 'cancelled', error_message = $2, ` + wipeSensitive + `,
 			completed_at = now(), updated_at = now()
 		WHERE id = $1 AND status NOT IN ('sent','delivered','failed','cancelled')`
 
@@ -229,6 +233,13 @@ func (j jobStore) List(ctx context.Context, f store.JobFilter) ([]*store.Job, er
 	// First, so the planner can lead with jobs_account_created_idx.
 	if f.AccountID != nil {
 		where = append(where, "account_id = "+arg(*f.AccountID))
+	}
+	if len(f.Kinds) > 0 {
+		kinds := make([]string, len(f.Kinds))
+		for i, k := range f.Kinds {
+			kinds[i] = string(k)
+		}
+		where = append(where, "kind = ANY("+arg(kinds)+")")
 	}
 	if len(f.Statuses) > 0 {
 		statuses := make([]string, len(f.Statuses))
@@ -274,7 +285,7 @@ func (j jobStore) CountByBucket(ctx context.Context, scope store.Scope, from tim
 	const q = `
 		SELECT date_bin(make_interval(secs => $2), created_at, $1) AS b, status, count(*)
 		FROM jobs
-		WHERE created_at >= $1 AND ($3::uuid IS NULL OR account_id = $3)
+		WHERE created_at >= $1 AND ($3::uuid IS NULL OR account_id = $3) AND kind = 'sms'
 		GROUP BY b, status
 		ORDER BY b`
 
@@ -302,7 +313,7 @@ func (j jobStore) CountByBucket(ctx context.Context, scope store.Scope, from tim
 func (j jobStore) CountByStatus(ctx context.Context, scope store.Scope, since time.Time) (map[store.JobStatus]int, error) {
 	rows, err := j.q.Query(ctx,
 		`SELECT status, count(*) FROM jobs
-		WHERE created_at >= $1 AND ($2::uuid IS NULL OR account_id = $2)
+		WHERE created_at >= $1 AND ($2::uuid IS NULL OR account_id = $2) AND kind = 'sms'
 		GROUP BY status`, since, scope.AccountID)
 	if err != nil {
 		return nil, translate(err)
@@ -430,6 +441,7 @@ func scanJob(row scanner) (*store.Job, error) {
 		j      store.Job
 		mode   string
 		status string
+		kind   string
 	)
 
 	err := row.Scan(
@@ -440,12 +452,38 @@ func scanJob(row scanner) (*store.Job, error) {
 		&j.Callback.URL, &j.Callback.Attempts, &j.Callback.NextAttemptAt,
 		&j.Callback.DeliveredAt, &j.Callback.LastError,
 		&j.CreatedAt, &j.UpdatedAt, &j.AssignedAt, &j.CompletedAt,
+		&kind, &j.Replies, &j.Responses, &j.Sensitive,
 	)
 	if err != nil {
 		return nil, err
 	}
 
+	j.Kind = store.JobKind(kind)
 	j.Mode = store.JobMode(mode)
 	j.Status = store.JobStatus(status)
 	return &j, nil
+}
+
+// wipeSensitive clears what a sensitive job carries once it is over: its code
+// or replies held a secret, and a finished job has no use for it.
+const wipeSensitive = `
+			body = CASE WHEN sensitive THEN '' ELSE body END,
+			replies = CASE WHEN sensitive THEN '{}' ELSE replies END`
+
+// kindOrSMS maps the zero kind to SMS, so callers written before USSD — and
+// tests — keep creating SMS jobs.
+func kindOrSMS(k store.JobKind) store.JobKind {
+	if k == "" {
+		return store.KindSMS
+	}
+	return k
+}
+
+// nonNil turns a nil slice into an empty one: pgx sends nil as NULL, which a
+// NOT NULL array column refuses.
+func nonNil(s []string) []string {
+	if s == nil {
+		return []string{}
+	}
+	return s
 }

@@ -1,4 +1,4 @@
-import { Code2, History, LayoutDashboard, LogOut, Moon, Send, Smartphone, Sun, type LucideIcon } from "lucide-react";
+import { Code2, Hash, History, Inbox, LayoutDashboard, LogOut, Moon, Send, Smartphone, Sun, type LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { useAuth } from "@/auth";
@@ -47,6 +47,8 @@ const groups: NavGroup[] = [
       { to: "/", label: "Vue d'ensemble", icon: LayoutDashboard, end: true },
       { to: "/send", label: "Envoyer", icon: Send },
       { to: "/history", label: "Historique", icon: History },
+      { to: "/inbox", label: "Reçus", icon: Inbox },
+      { to: "/ussd", label: "USSD", icon: Hash },
     ],
   },
   {

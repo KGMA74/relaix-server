@@ -36,6 +36,8 @@ func RunConformance(t *testing.T, newStore Factory) {
 	t.Run("Enrollment", func(t *testing.T) { testEnrollment(t, newStore) })
 	t.Run("Events", func(t *testing.T) { testEvents(t, newStore) })
 	t.Run("Transactions", func(t *testing.T) { testTransactions(t, newStore) })
+	t.Run("USSD", func(t *testing.T) { testUSSD(t, newStore) })
+	t.Run("Inbound", func(t *testing.T) { testInbound(t, newStore) })
 }
 
 func testDevices(t *testing.T, newStore Factory) {
@@ -1453,6 +1455,170 @@ func testAccounts(t *testing.T, newStore Factory) {
 		}
 		if got.AccountID != b.ID {
 			t.Errorf("account after rekey = %v, want b", got.AccountID)
+		}
+	})
+}
+
+func testUSSD(t *testing.T, newStore Factory) {
+	ctx := context.Background()
+
+	ussd := func(t *testing.T, s store.Store, sensitive bool) *store.Job {
+		t.Helper()
+		j, err := s.Jobs().Create(ctx, &store.Job{
+			Kind: store.KindUSSD, Body: "*144*1234#", Mode: store.ModeQueued,
+			Replies: []string{"2", "1"}, Sensitive: sensitive,
+		})
+		if err != nil {
+			t.Fatalf("Create: %v", err)
+		}
+		return j
+	}
+
+	t.Run("kind, replies and sensitive round-trip; the default kind is sms", func(t *testing.T) {
+		s := newStore(t)
+		j := ussd(t, s, true)
+		got, err := s.Jobs().Get(ctx, j.ID)
+		if err != nil {
+			t.Fatalf("Get: %v", err)
+		}
+		if got.Kind != store.KindUSSD || got.Body != "*144*1234#" || !got.Sensitive {
+			t.Errorf("round trip lost fields: %+v", got)
+		}
+		if len(got.Replies) != 2 || got.Replies[0] != "2" || got.Replies[1] != "1" {
+			t.Errorf("Replies = %q, want [2 1]", got.Replies)
+		}
+		if len(got.Responses) != 0 {
+			t.Errorf("Responses = %q before any result", got.Responses)
+		}
+
+		sms, err := s.Jobs().Create(ctx, &store.Job{Recipient: "+22670000000", Body: "x", Mode: store.ModeQueued})
+		if err != nil {
+			t.Fatalf("Create sms: %v", err)
+		}
+		if sms.Kind != store.KindSMS {
+			t.Errorf("Kind = %q, want sms by default", sms.Kind)
+		}
+	})
+
+	t.Run("complete keeps responses and wipes a sensitive job's secret", func(t *testing.T) {
+		s := newStore(t)
+		secret, plain := ussd(t, s, true), ussd(t, s, false)
+		for _, j := range []*store.Job{secret, plain} {
+			err := s.Jobs().Complete(ctx, j.ID, store.JobResult{
+				Status: store.JobSent, CompletedAt: time.Now(), Responses: []string{"Menu", "Solde: 5000 FCFA"},
+			})
+			if err != nil {
+				t.Fatalf("Complete: %v", err)
+			}
+		}
+
+		got, _ := s.Jobs().Get(ctx, secret.ID)
+		if got.Body != "" || len(got.Replies) != 0 {
+			t.Errorf("sensitive job kept body %q, replies %q", got.Body, got.Replies)
+		}
+		if len(got.Responses) != 2 || got.Responses[1] != "Solde: 5000 FCFA" {
+			t.Errorf("Responses = %q", got.Responses)
+		}
+		kept, _ := s.Jobs().Get(ctx, plain.ID)
+		if kept.Body != "*144*1234#" || len(kept.Replies) != 2 {
+			t.Errorf("a job not marked sensitive lost its code: %+v", kept)
+		}
+
+		// A repeat without responses leaves them alone.
+		if err := s.Jobs().Complete(ctx, plain.ID, store.JobResult{Status: store.JobSent, CompletedAt: time.Now()}); err != nil {
+			t.Fatalf("repeat Complete: %v", err)
+		}
+		if again, _ := s.Jobs().Get(ctx, plain.ID); len(again.Responses) != 2 {
+			t.Errorf("a repeated result wiped the responses: %q", again.Responses)
+		}
+	})
+
+	t.Run("cancel wipes a sensitive job's secret", func(t *testing.T) {
+		s := newStore(t)
+		j := ussd(t, s, true)
+		if err := s.Jobs().Cancel(ctx, j.ID, "changed my mind"); err != nil {
+			t.Fatalf("Cancel: %v", err)
+		}
+		if got, _ := s.Jobs().Get(ctx, j.ID); got.Body != "" || len(got.Replies) != 0 {
+			t.Errorf("cancelled sensitive job kept body %q, replies %q", got.Body, got.Replies)
+		}
+	})
+
+	t.Run("ussd jobs are listed by kind and left out of message counts", func(t *testing.T) {
+		s := newStore(t)
+		dev, err := s.Devices().Create(ctx, &store.Device{Label: "d"}, "hash-ussd")
+		if err != nil {
+			t.Fatalf("Create device: %v", err)
+		}
+		now := time.Now().UTC()
+		u := ussd(t, s, false)
+		if err := s.Jobs().MarkAssigned(ctx, u.ID, dev.ID, 0, now); err != nil {
+			t.Fatalf("MarkAssigned: %v", err)
+		}
+		m, err := s.Jobs().Create(ctx, &store.Job{Recipient: "+22670000000", Body: "x", Mode: store.ModeQueued})
+		if err != nil {
+			t.Fatalf("Create sms: %v", err)
+		}
+		if err := s.Jobs().MarkAssigned(ctx, m.ID, dev.ID, 0, now); err != nil {
+			t.Fatalf("MarkAssigned: %v", err)
+		}
+
+		counts, err := s.Jobs().CountDispatched(ctx, now.Add(-time.Hour), now.Add(-24*time.Hour))
+		if err != nil {
+			t.Fatalf("CountDispatched: %v", err)
+		}
+		if len(counts) != 1 || counts[0].LastHour != 1 {
+			t.Errorf("CountDispatched = %+v, want the SMS alone", counts)
+		}
+		byStatus, err := s.Jobs().CountByStatus(ctx, store.AllAccounts(), now.Add(-time.Hour))
+		if err != nil {
+			t.Fatalf("CountByStatus: %v", err)
+		}
+		if byStatus[store.JobAssigned] != 1 {
+			t.Errorf("CountByStatus = %v, want one assigned SMS", byStatus)
+		}
+		buckets, err := s.Jobs().CountByBucket(ctx, store.AllAccounts(), now.Add(-time.Hour), time.Hour)
+		if err != nil {
+			t.Fatalf("CountByBucket: %v", err)
+		}
+		total := 0
+		for _, b := range buckets {
+			total += b.Count
+		}
+		if total != 1 {
+			t.Errorf("CountByBucket counted %d jobs, want the SMS alone", total)
+		}
+
+		listed, err := s.Jobs().List(ctx, store.JobFilter{Kinds: []store.JobKind{store.KindUSSD}})
+		if err != nil {
+			t.Fatalf("List: %v", err)
+		}
+		if len(listed) != 1 || listed[0].ID != u.ID {
+			t.Errorf("List(kind=ussd) = %d jobs, want the USSD one", len(listed))
+		}
+	})
+
+	t.Run("device capabilities round-trip through create, update and rekey", func(t *testing.T) {
+		s := newStore(t)
+		dev, err := s.Devices().Create(ctx, &store.Device{Label: "d", Capabilities: []string{store.CapUSSD}}, "hash-cap")
+		if err != nil {
+			t.Fatalf("Create: %v", err)
+		}
+		if !dev.Can(store.CapUSSD) || dev.Can(store.CapInboundSMS) {
+			t.Errorf("Capabilities after create = %q", dev.Capabilities)
+		}
+		if err := s.Devices().UpdateInfo(ctx, dev.ID, &store.Device{Label: "d", Capabilities: []string{store.CapUSSD, store.CapInboundSMS}}); err != nil {
+			t.Fatalf("UpdateInfo: %v", err)
+		}
+		if got, _ := s.Devices().Get(ctx, dev.ID); !got.Can(store.CapInboundSMS) {
+			t.Errorf("Capabilities after update = %q", got.Capabilities)
+		}
+		rekeyed, err := s.Devices().Rekey(ctx, dev.ID, &store.Device{Label: "d"}, "hash-cap-2")
+		if err != nil {
+			t.Fatalf("Rekey: %v", err)
+		}
+		if len(rekeyed.Capabilities) != 0 {
+			t.Errorf("an agent reporting none kept %q", rekeyed.Capabilities)
 		}
 	})
 }

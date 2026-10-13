@@ -42,7 +42,7 @@ type harness struct {
 	events *events.Broker
 }
 
-func newHarness(t *testing.T) *harness {
+func newHarness(t *testing.T, configure ...func(*Options)) *harness {
 	t.Helper()
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -66,12 +66,16 @@ func newHarness(t *testing.T) *harness {
 	go func() { defer close(hubDone); _ = h.Run(hubCtx) }()
 
 	broker := events.New()
-	srv := New(st, h, hasher, Options{
+	opts := Options{
 		HeartbeatInterval: 30 * time.Second,
 		Events:            broker,
 		Now:               func() time.Time { return testNow },
 		Logger:            logger,
-	})
+	}
+	for _, c := range configure {
+		c(&opts)
+	}
+	srv := New(st, h, hasher, opts)
 
 	lis := bufconn.Listen(1024 * 1024)
 	gs := grpc.NewServer()

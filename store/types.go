@@ -11,6 +11,7 @@
 package store
 
 import (
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -111,6 +112,27 @@ func (s JobStatus) Terminal() bool {
 		return false
 	}
 }
+
+// JobKind is what a job asks a phone to do.
+type JobKind string
+
+const (
+	// KindSMS sends Body to Recipient. Every job before USSD existed.
+	KindSMS JobKind = "sms"
+	// KindUSSD dials Body — a USSD code — and records what the network
+	// answers. Recipient is empty; Replies answer the menus the code opens.
+	KindUSSD JobKind = "ussd"
+)
+
+// Capabilities an agent reports beyond sending SMS (DeviceInfo.capabilities).
+const (
+	// CapUSSD runs a USSD code without replies.
+	CapUSSD = "ussd"
+	// CapUSSDMenu also answers the menus a code opens.
+	CapUSSDMenu = "ussd_menu"
+	// CapInboundSMS forwards received SMS.
+	CapInboundSMS = "inbound_sms"
+)
 
 // JobMode decides what happens when no device can take a job right now.
 type JobMode string
@@ -218,6 +240,10 @@ type Device struct {
 	// availability windows.
 	TimeZone string
 
+	// Capabilities is what the agent said it can do beyond sending SMS, as of
+	// its last Register (Cap* constants). Empty for an agent that predates it.
+	Capabilities []string
+
 	// Policy is when the device takes work and for which recipients. The zero
 	// value restricts nothing.
 	Policy policy.Policy
@@ -234,14 +260,33 @@ type Device struct {
 	UpdatedAt time.Time
 }
 
-// Job is one SMS request.
+// Can reports whether the device's agent said it can do capability.
+func (d *Device) Can(capability string) bool {
+	return slices.Contains(d.Capabilities, capability)
+}
+
+// Job is one request to a phone: an SMS to send, or a USSD code to run.
 type Job struct {
 	ID uuid.UUID
 	// AccountID owns the job. Zero on Create means the default account.
 	AccountID uuid.UUID
+	// Kind is what the phone does. Empty on Create means KindSMS.
+	Kind      JobKind
 	Recipient string
-	Body      string
-	Mode      JobMode
+	// Body is the SMS text, or the USSD code dialed.
+	Body string
+	Mode JobMode
+
+	// Replies answer, in order, the menus a USSD code opens. Empty: the code
+	// alone.
+	Replies []string
+	// Responses is what the network displayed for a USSD job, one entry per
+	// screen.
+	Responses []string
+	// Sensitive marks a job whose Body or Replies carry a secret (a PIN).
+	// Never shown by the API, and wiped from the store once the job is over.
+	Sensitive bool
+
 	// Priority orders the queue; higher is considered first. It is ordering,
 	// not preemption — an assigned job is never recalled.
 	Priority int
@@ -301,6 +346,8 @@ func (j *Job) Expired(now time.Time) bool {
 type JobFilter struct {
 	// AccountID restricts to one account's jobs. Nil: all accounts.
 	AccountID *uuid.UUID
+	// Kinds matches any of the listed kinds. Empty means all.
+	Kinds []JobKind
 	// Statuses matches any of the listed states. Empty means all.
 	Statuses []JobStatus
 	// DeviceID matches a job the device was asked for or was given. Both,
@@ -353,6 +400,45 @@ func (c *CallbackState) Due(now time.Time) bool {
 		c.DeliveredAt == nil &&
 		c.NextAttemptAt != nil &&
 		!now.Before(*c.NextAttemptAt)
+}
+
+// InboundMessage is an SMS a phone received and forwarded.
+type InboundMessage struct {
+	ID        uuid.UUID
+	AccountID uuid.UUID
+	// DeviceID is the phone it arrived on; nil once that phone is deleted.
+	DeviceID *uuid.UUID
+	// DeviceRef is the id the agent gave the message, stable across resends.
+	DeviceRef string
+	// SubscriptionID is the SIM it arrived on, when the phone said.
+	SubscriptionID *int32
+	Sender         string
+	Body           string
+	ReceivedAt     time.Time
+	CreatedAt      time.Time
+
+	// Webhook tracks the notification of the message, like a job's callback.
+	Webhook CallbackState
+}
+
+// InboundFilter narrows InboundStore.List; the zero value matches everything.
+type InboundFilter struct {
+	AccountID *uuid.UUID
+	DeviceID  *uuid.UUID
+	// Sender matches whole, ignoring case.
+	Sender string
+	// ReceivedFrom is inclusive, ReceivedTo exclusive.
+	ReceivedFrom *time.Time
+	ReceivedTo   *time.Time
+	// After resumes a listing after the message it names.
+	After *InboundCursor
+	Limit int
+}
+
+// InboundCursor is a position in InboundStore.List's order.
+type InboundCursor struct {
+	ReceivedAt time.Time
+	ID         uuid.UUID
 }
 
 // EnrollmentToken is a single-use credential that trades for a device token.

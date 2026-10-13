@@ -77,6 +77,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
         return;
       }
       if (e.type.startsWith("device.")) invalidate(["devices"], ["stats"]);
+      if (e.type === "sms.received") invalidate(["inbox"]);
       if (e.type.startsWith("job.")) {
         invalidate(["jobs"], ["stats"]);
         if (e.jobId) invalidate(["job", e.jobId]);

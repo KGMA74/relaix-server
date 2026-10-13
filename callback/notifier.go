@@ -55,7 +55,9 @@ var ErrPermanent = errors.New("callback: permanent failure")
 // REST API accepts — rather than the database's column names, so the storage
 // schema can change without breaking every receiver.
 type Payload struct {
-	JobID        string  `json:"jobId"`
+	JobID string `json:"jobId"`
+	// Kind is "sms" or "ussd".
+	Kind         string  `json:"kind"`
 	Status       string  `json:"status"`
 	Recipient    string  `json:"recipient"`
 	DeviceID     *string `json:"deviceId,omitempty"`
@@ -64,6 +66,8 @@ type Payload struct {
 	ErrorMessage string  `json:"errorMessage,omitempty"`
 	CompletedAt  *string `json:"completedAt,omitempty"`
 	Attempt      int     `json:"attempt"`
+	// Responses is what the network displayed, for a USSD job.
+	Responses []string `json:"responses,omitempty"`
 }
 
 // Options configures a Notifier.
@@ -121,8 +125,22 @@ func (n *Notifier) Notify(ctx context.Context, job *store.Job) error {
 	if job.Callback.URL == "" {
 		return nil
 	}
+	return n.post(ctx, job.Callback.URL, job.AccountID, job.ID, payloadFor(job))
+}
 
-	body, err := json.Marshal(payloadFor(job))
+// NotifyInbound posts one received SMS, signed and classified exactly like a
+// job callback.
+func (n *Notifier) NotifyInbound(ctx context.Context, m *store.InboundMessage) error {
+	if m.Webhook.URL == "" {
+		return nil
+	}
+	return n.post(ctx, m.Webhook.URL, m.AccountID, m.ID, inboundPayloadFor(m))
+}
+
+// post signs and sends one payload. delivery names what it is about, for the
+// receiver's logs; the account picks the signing secret.
+func (n *Notifier) post(ctx context.Context, url string, account, delivery uuid.UUID, payload any) error {
+	body, err := json.Marshal(payload)
 	if err != nil {
 		// A payload we cannot marshal will not marshal on the next attempt
 		// either.
@@ -130,14 +148,14 @@ func (n *Notifier) Notify(ctx context.Context, job *store.Job) error {
 	}
 
 	ts := n.opts.Now().UTC()
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, job.Callback.URL, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("%w: build request: %v", ErrPermanent, err)
 	}
 
 	secret := n.opts.Secret
 	if n.opts.SecretFor != nil {
-		own, err := n.opts.SecretFor(ctx, job.AccountID)
+		own, err := n.opts.SecretFor(ctx, account)
 		if err != nil {
 			return fmt.Errorf("callback: signing secret: %w", err)
 		}
@@ -150,7 +168,7 @@ func (n *Notifier) Notify(ctx context.Context, job *store.Job) error {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", "relaix-gateway")
 	req.Header.Set(HeaderTimestamp, stamp)
-	req.Header.Set(HeaderDelivery, job.ID.String())
+	req.Header.Set(HeaderDelivery, delivery.String())
 	req.Header.Set(HeaderSignature, "sha256="+Sign(secret, stamp, body))
 
 	resp, err := n.opts.Client.Do(req)
@@ -204,7 +222,9 @@ func Verify(secret []byte, timestamp string, body []byte, signature string) bool
 func payloadFor(job *store.Job) Payload {
 	p := Payload{
 		JobID:        job.ID.String(),
+		Kind:         string(job.Kind),
 		Status:       string(job.Status),
+		Responses:    job.Responses,
 		Recipient:    job.Recipient,
 		PartsSent:    job.PartsSent,
 		ErrorCode:    job.ErrorCode,
@@ -220,6 +240,36 @@ func payloadFor(job *store.Job) Payload {
 	if job.CompletedAt != nil {
 		at := job.CompletedAt.UTC().Format(time.RFC3339)
 		p.CompletedAt = &at
+	}
+	return p
+}
+
+// InboundPayload is the JSON body posted for a received SMS. Type tells it
+// apart from a job callback when both go to the same URL.
+type InboundPayload struct {
+	Type           string  `json:"type"`
+	MessageID      string  `json:"messageId"`
+	DeviceID       *string `json:"deviceId,omitempty"`
+	SubscriptionID *int32  `json:"subscriptionId,omitempty"`
+	Sender         string  `json:"sender"`
+	Body           string  `json:"body"`
+	ReceivedAt     string  `json:"receivedAt"`
+	Attempt        int     `json:"attempt"`
+}
+
+func inboundPayloadFor(m *store.InboundMessage) InboundPayload {
+	p := InboundPayload{
+		Type:           "sms.received",
+		MessageID:      m.ID.String(),
+		SubscriptionID: m.SubscriptionID,
+		Sender:         m.Sender,
+		Body:           m.Body,
+		ReceivedAt:     m.ReceivedAt.UTC().Format(time.RFC3339),
+		Attempt:        m.Webhook.Attempts + 1,
+	}
+	if m.DeviceID != nil {
+		id := m.DeviceID.String()
+		p.DeviceID = &id
 	}
 	return p
 }

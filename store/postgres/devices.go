@@ -20,7 +20,7 @@ type deviceStore struct{ q querier }
 const deviceColumns = `
 	id, account_id, label, phone_number, enabled,
 	manufacturer, model, os_version, agent_version, carrier, sim_info, hardware_hash,
-	time_zone, policy,
+	time_zone, policy, capabilities,
 	battery_level, is_charging, signal_strength, network_type,
 	sim_ready, sent_last_hour, permissions_ok, sim_health, health_reported_at,
 	last_seen_at, created_at, updated_at`
@@ -111,8 +111,8 @@ func (d deviceStore) Create(ctx context.Context, in *store.Device, tokenHash str
 		INSERT INTO devices (
 			label, phone_number, token_hash, enabled,
 			manufacturer, model, os_version, agent_version, carrier, sim_info,
-			hardware_hash, time_zone, account_id
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NULLIF($11, ''),$12,$13)
+			hardware_hash, time_zone, account_id, capabilities
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NULLIF($11, ''),$12,$13,$14)
 		RETURNING ` + deviceColumns
 
 	simInfo, err := marshalSimInfo(in.Sims)
@@ -122,7 +122,7 @@ func (d deviceStore) Create(ctx context.Context, in *store.Device, tokenHash str
 	row := d.q.QueryRow(ctx, q,
 		in.Label, in.PhoneNumber, tokenHash, true,
 		in.Manufacturer, in.Model, in.OSVersion, in.AgentVersion, in.Carrier, simInfo,
-		in.HardwareHash, in.TimeZone, store.AccountOrDefault(in.AccountID),
+		in.HardwareHash, in.TimeZone, store.AccountOrDefault(in.AccountID), nonNil(in.Capabilities),
 	)
 	dev, err := scanDevice(row)
 	return dev, translate(err)
@@ -147,7 +147,7 @@ func (d deviceStore) Rekey(ctx context.Context, id uuid.UUID, in *store.Device, 
 			token_hash = $2, enabled = true,
 			label = $3, phone_number = $4, manufacturer = $5, model = $6,
 			os_version = $7, agent_version = $8, carrier = $9, sim_info = $10,
-			time_zone = $11, account_id = $12, updated_at = now()
+			time_zone = $11, account_id = $12, capabilities = $13, updated_at = now()
 		WHERE id = $1
 		RETURNING ` + deviceColumns
 
@@ -160,7 +160,7 @@ func (d deviceStore) Rekey(ctx context.Context, id uuid.UUID, in *store.Device, 
 	dev, err := scanDevice(d.q.QueryRow(ctx, q, id, tokenHash,
 		in.Label, in.PhoneNumber, in.Manufacturer, in.Model,
 		in.OSVersion, in.AgentVersion, in.Carrier, simInfo, in.TimeZone,
-		store.AccountOrDefault(in.AccountID),
+		store.AccountOrDefault(in.AccountID), nonNil(in.Capabilities),
 	))
 	return dev, translate(err)
 }
@@ -206,7 +206,7 @@ func (d deviceStore) UpdateInfo(ctx context.Context, id uuid.UUID, in *store.Dev
 		UPDATE devices SET
 			label = $2, phone_number = $3, manufacturer = $4, model = $5,
 			os_version = $6, agent_version = $7, carrier = $8, sim_info = $9,
-			time_zone = $10, updated_at = now()
+			time_zone = $10, capabilities = $11, updated_at = now()
 		WHERE id = $1`
 
 	simInfo, err := marshalSimInfo(in.Sims)
@@ -216,6 +216,7 @@ func (d deviceStore) UpdateInfo(ctx context.Context, id uuid.UUID, in *store.Dev
 	tag, err := d.q.Exec(ctx, q, id,
 		in.Label, in.PhoneNumber, in.Manufacturer, in.Model,
 		in.OSVersion, in.AgentVersion, in.Carrier, simInfo, in.TimeZone,
+		nonNil(in.Capabilities),
 	)
 	if err != nil {
 		return translate(err)
@@ -361,7 +362,7 @@ func scanDevice(row scanner) (*store.Device, error) {
 	err := row.Scan(
 		&d.ID, &d.AccountID, &d.Label, &d.PhoneNumber, &d.Enabled,
 		&d.Manufacturer, &d.Model, &d.OSVersion, &d.AgentVersion, &d.Carrier, &simInfo, &hardware,
-		&d.TimeZone, &policyDoc,
+		&d.TimeZone, &policyDoc, &d.Capabilities,
 		&battery, &charging, &signal, &network,
 		&sim, &sentLast, &perms, &simHealth, &reportedAt,
 		&d.LastSeenAt, &d.CreatedAt, &d.UpdatedAt,

@@ -62,6 +62,9 @@ type Extensions struct {
 	SendGuard         api.SendGuard
 	EnrollGuard       devices.Guard
 	CallbackSecretFor func(ctx context.Context, account uuid.UUID) ([]byte, error)
+	// InboundWebhookFor gives each account its own URL for received SMS.
+	// Empty falls back to the configured one.
+	InboundWebhookFor func(ctx context.Context, account uuid.UUID) (string, error)
 	Routes            func(mux *http.ServeMux)
 	PublicPrefixes    []string
 	UIConfig          api.UIConfig
@@ -144,6 +147,20 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger, extend Ext
 		MaxAttempts: cfg.CallbackMaxAttempts,
 		Logger:      logger,
 	})
+	inboundWatcher := callback.NewInboundWatcher(st, notifier, callback.WatcherOptions{
+		Interval:    cfg.CallbackInterval,
+		MaxAttempts: cfg.CallbackMaxAttempts,
+		Logger:      logger,
+	})
+	inboundWebhook := func(ctx context.Context, account uuid.UUID) (string, error) {
+		if ext.InboundWebhookFor != nil {
+			url, err := ext.InboundWebhookFor(ctx, account)
+			if err != nil || url != "" {
+				return url, err
+			}
+		}
+		return cfg.InboundWebhookURL, nil
+	}
 	if cfg.CallbackSecret == "" {
 		// Not fatal: a deployment that never sets callbackUrl needs no secret.
 		// But an unsigned callback is one the receiver cannot authenticate, so
@@ -154,6 +171,7 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger, extend Ext
 	deviceGateway := grpcserver.New(st, h, hasher, grpcserver.Options{
 		HeartbeatInterval: cfg.HeartbeatInterval,
 		Events:            broker,
+		InboundWebhook:    inboundWebhook,
 		Logger:            logger,
 	}).WithEnroller(enrollment)
 
@@ -221,6 +239,7 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger, extend Ext
 
 	g.Go(func() error { return sched.Run(gctx) })
 	g.Go(func() error { return watcher.Run(gctx) })
+	g.Go(func() error { return inboundWatcher.Run(gctx) })
 
 	// --- stop --------------------------------------------------------------
 

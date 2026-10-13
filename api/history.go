@@ -83,6 +83,15 @@ func parseJobFilter(r *http.Request) (store.JobFilter, *apiError) {
 			f.Statuses = append(f.Statuses, st)
 		}
 	}
+	if raw := q.Get("kind"); raw != "" {
+		for _, part := range strings.Split(raw, ",") {
+			k := store.JobKind(strings.TrimSpace(part))
+			if k != store.KindSMS && k != store.KindUSSD {
+				return f, badRequest("invalid_kind", "kind must be sms or ussd")
+			}
+			f.Kinds = append(f.Kinds, k)
+		}
+	}
 	if raw := q.Get("deviceId"); raw != "" {
 		id, err := uuid.Parse(raw)
 		if err != nil {

@@ -148,8 +148,11 @@ type deviceResponse struct {
 	Sims   []simResponse   `json:"sims,omitempty"`
 	Health *healthResponse `json:"health,omitempty"`
 	// TimeZone is the zone the phone reports; Policy's windows default to it.
-	TimeZone string        `json:"timeZone,omitempty"`
-	Policy   policy.Policy `json:"policy"`
+	TimeZone string `json:"timeZone,omitempty"`
+	// Capabilities is what the phone's agent can do beyond sending SMS:
+	// "ussd", "ussd_menu", "inbound_sms".
+	Capabilities []string      `json:"capabilities"`
+	Policy       policy.Policy `json:"policy"`
 	// AvailableNow: the device's own hours are open at this moment (SIM
 	// hours aside). A ready device outside them takes no job.
 	AvailableNow bool `json:"availableNow"`
@@ -304,6 +307,7 @@ func (s *Server) handleListDevices(w http.ResponseWriter, r *http.Request) {
 			Carrier:      d.Carrier,
 			CreatedAt:    d.CreatedAt.UTC().Format(time.RFC3339),
 			TimeZone:     d.TimeZone,
+			Capabilities: nonNilStrings(d.Capabilities),
 			Policy:       d.Policy,
 			AvailableNow: d.Policy.Availability.Open(now, d.TimeZone),
 		}
@@ -429,4 +433,13 @@ func toHealthResponse(h *store.DeviceHealth) *healthResponse {
 		PermissionsOK:  h.PermissionsOK,
 		ReportedAt:     h.ReportedAt.UTC().Format(time.RFC3339),
 	}
+}
+
+// nonNilStrings makes an absent list encode as [] rather than null, so a
+// client can iterate it without a check.
+func nonNilStrings(s []string) []string {
+	if s == nil {
+		return []string{}
+	}
+	return s
 }

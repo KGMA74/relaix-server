@@ -90,6 +90,9 @@ func (s *Store) Enrollments() store.EnrollmentStore { return enrollmentStore{s.q
 // Events implements store.Store.
 func (s *Store) Events() store.EventStore { return eventStore{s.q} }
 
+// Inbound implements store.Store.
+func (s *Store) Inbound() store.InboundStore { return inboundStore{s.q} }
+
 // WithTx runs fn in a transaction, rolling back on error or panic.
 //
 // The rollback is deferred rather than only run on the error path so that a
@@ -127,6 +130,7 @@ var (
 	_ store.JobStore        = jobStore{}
 	_ store.EnrollmentStore = enrollmentStore{}
 	_ store.EventStore      = eventStore{}
+	_ store.InboundStore    = inboundStore{}
 )
 
 // translate maps driver errors onto the store's vocabulary, so nothing above

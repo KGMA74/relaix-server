@@ -1,4 +1,4 @@
-import type { Activity, Country, Device, Policy, EnrollToken, Job, JobEvent, JobPage, SendRequest, Stats } from "./types";
+import type { Activity, Country, Device, Policy, EnrollToken, InboundMessage, InboxPage, Job, JobEvent, JobKind, JobPage, SendRequest, Stats, UssdRequest } from "./types";
 
 // The API key lives in sessionStorage: it survives a reload but not closing the
 // tab, which is the right lifetime for an admin credential typed by hand.
@@ -85,6 +85,7 @@ export async function request<T>(method: string, path: string, body?: unknown, k
 }
 
 export interface JobQuery {
+  kind?: JobKind;
   status?: string[];
   deviceId?: string;
   recipient?: string;
@@ -96,11 +97,29 @@ export interface JobQuery {
 
 function query(q: JobQuery): string {
   const p = new URLSearchParams();
+  if (q.kind) p.set("kind", q.kind);
   if (q.status?.length) p.set("status", q.status.join(","));
   if (q.deviceId) p.set("deviceId", q.deviceId);
   if (q.recipient) p.set("recipient", q.recipient);
   if (q.from) p.set("from", q.from);
   if (q.to) p.set("to", q.to);
+  if (q.limit) p.set("limit", String(q.limit));
+  if (q.cursor) p.set("cursor", q.cursor);
+  const s = p.toString();
+  return s ? "?" + s : "";
+}
+
+export interface InboxQuery {
+  deviceId?: string;
+  sender?: string;
+  limit?: number;
+  cursor?: string;
+}
+
+function inboxQuery(q: InboxQuery): string {
+  const p = new URLSearchParams();
+  if (q.deviceId) p.set("deviceId", q.deviceId);
+  if (q.sender) p.set("sender", q.sender);
   if (q.limit) p.set("limit", String(q.limit));
   if (q.cursor) p.set("cursor", q.cursor);
   const s = p.toString();
@@ -122,6 +141,12 @@ export const api = {
 
   /** POST /send answers one job for `recipient`, a list for `recipients`. */
   send: (req: SendRequest) => request<Job | { jobs: Job[] }>("POST", "/send", req),
+
+  /** Runs a USSD code on one phone; the answer arrives on the job. */
+  ussd: (req: UssdRequest) => request<Job>("POST", "/ussd", req),
+
+  listInbox: (q: InboxQuery) => request<InboxPage>("GET", "/inbox" + inboxQuery(q)),
+  getInbound: (id: string) => request<InboundMessage>("GET", `/inbox/${id}`),
 
   listDevices: () => request<{ devices: Device[] }>("GET", "/devices"),
   setDeviceEnabled: (id: string, enabled: boolean) => request<Device>("PATCH", `/devices/${id}`, { enabled }),

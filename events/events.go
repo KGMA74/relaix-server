@@ -30,15 +30,18 @@ const (
 	DeviceRemoved      = "device.removed"
 	JobCreated         = "job.created"
 	JobUpdated         = "job.updated"
+	SmsReceived        = "sms.received"
 )
 
 // Event is one change. Only the fields that name what changed are set.
 type Event struct {
-	Type     string    `json:"type"`
-	DeviceID string    `json:"deviceId,omitempty"`
-	JobID    string    `json:"jobId,omitempty"`
-	Status   string    `json:"status,omitempty"`
-	At       time.Time `json:"at"`
+	Type     string `json:"type"`
+	DeviceID string `json:"deviceId,omitempty"`
+	JobID    string `json:"jobId,omitempty"`
+	// MessageID names a received SMS (SmsReceived).
+	MessageID string    `json:"messageId,omitempty"`
+	Status    string    `json:"status,omitempty"`
+	At        time.Time `json:"at"`
 
 	// Reenrolled marks a DeviceEnrolled that took back an existing device
 	// rather than creating one.

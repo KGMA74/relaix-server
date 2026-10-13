@@ -13,6 +13,7 @@ func ToProto(p Policy) *v1.DevicePolicy {
 		Availability: availabilityToProto(p.Availability),
 		Accept:       acceptToProto(p.Accept),
 		Limits:       limitsToProto(p.Limits),
+		Inbound:      inboundToProto(p.Inbound),
 	}
 	if p.UpdatedAt != nil {
 		out.UpdatedAt = timestamppb.New(*p.UpdatedAt)
@@ -36,6 +37,7 @@ func FromProto(m *v1.DevicePolicy) Policy {
 		Availability: availabilityFromProto(m.GetAvailability()),
 		Accept:       acceptFromProto(m.GetAccept()),
 		Limits:       limitsFromProto(m.GetLimits()),
+		Inbound:      inboundFromProto(m.GetInbound()),
 	}
 	for _, s := range m.GetSims() {
 		p.Sims = append(p.Sims, SimPolicy{

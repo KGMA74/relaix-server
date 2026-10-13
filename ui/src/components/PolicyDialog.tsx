@@ -1,9 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CalendarClock, Check, Gauge, Globe2, Loader2, Plus, Regex, Search, Trash2, X } from "lucide-react";
+import { CalendarClock, Check, Gauge, Globe2, Inbox, Loader2, Plus, Regex, Search, Trash2, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { api } from "../api/client";
-import type { AcceptRules, Availability, Country, Device, Policy, SendLimits, SimPolicy, TimeWindow, UsageCount } from "../api/types";
+import type { AcceptRules, Availability, Country, Device, InboundRules, Policy, SendLimits, SimPolicy, TimeWindow, UsageCount } from "../api/types";
 import { ErrorNote, Modal } from "./common";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -82,6 +82,7 @@ export function PolicyDialog({ device, onClose }: { device: Device; onClose: () 
     accept: device.policy?.accept ?? {},
     sims: device.policy?.sims ?? [],
     limits: device.policy?.limits ?? {},
+    inbound: device.policy?.inbound ?? {},
   }));
 
   const sims = [...(device.sims ?? [])].sort((a, b) => a.slotIndex - b.slotIndex);
@@ -138,6 +139,10 @@ export function PolicyDialog({ device, onClose }: { device: Device; onClose: () 
               {simDraft(s.subscriptionId).disabled && <span className="ml-1 text-xs text-muted-foreground">(off)</span>}
             </TabsTrigger>
           ))}
+          <TabsTrigger value="inbound">
+            SMS reçus
+            {draft.inbound?.enabled && <span className="ml-1 text-xs text-muted-foreground">(on)</span>}
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="device" className="mt-4 space-y-6">
@@ -191,6 +196,14 @@ export function PolicyDialog({ device, onClose }: { device: Device; onClose: () 
             </TabsContent>
           );
         })}
+
+        <TabsContent value="inbound" className="mt-4 space-y-6">
+          <InboundEditor
+            value={draft.inbound ?? {}}
+            onChange={(inbound) => setDraft((d) => ({ ...d, inbound }))}
+            supported={device.capabilities?.includes("inbound_sms") ?? false}
+          />
+        </TabsContent>
       </Tabs>
 
       <div className="mt-6">
@@ -507,6 +520,64 @@ function LimitsEditor({
         {field("perDay", "Par jour (24 h glissantes)", usage?.lastDay ?? 0)}
       </div>
       {inverted && <p className="mt-2 text-xs text-destructive">Le plafond par jour ne peut pas être sous le plafond par heure.</p>}
+    </Section>
+  );
+}
+
+/** Which received SMS the phone forwards: off, everything, or named senders. */
+function InboundEditor({
+  value,
+  onChange,
+  supported,
+}: {
+  value: InboundRules;
+  onChange: (v: InboundRules) => void;
+  supported: boolean;
+}) {
+  const [raw, setRaw] = useState((value.senders ?? []).join(", "));
+  const commit = (text: string) => {
+    setRaw(text);
+    const senders = text
+      .split(/[,\n]/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    onChange({ ...value, senders });
+  };
+
+  return (
+    <Section
+      icon={Inbox}
+      title="Transmettre les SMS reçus"
+      hint="Le téléphone envoie à la passerelle les SMS reçus de ces expéditeurs : ils apparaissent dans « Reçus » et partent vers le webhook configuré. Les autres ne quittent jamais le téléphone."
+    >
+      {!supported && (
+        <p className="mb-3 rounded-md border border-warning-line bg-warning-soft p-2 text-xs">
+          L'application de ce téléphone ne sait pas encore transmettre ses SMS : mettez-la à jour pour que cette règle prenne effet.
+        </p>
+      )}
+      <label className="mb-4 flex items-center justify-between gap-4 rounded-md border p-3 text-sm">
+        <span>
+          <span className="font-medium">Transmettre</span>
+          <span className="block text-xs text-muted-foreground">Désactivé, rien n'est transmis.</span>
+        </span>
+        <Switch checked={!!value.enabled} onCheckedChange={(enabled) => onChange({ ...value, enabled })} />
+      </label>
+      <fieldset disabled={!value.enabled} className={cn(!value.enabled && "opacity-50")}>
+        <label className="label" htmlFor="inbound-senders">
+          Expéditeurs
+        </label>
+        <input
+          id="inbound-senders"
+          className="input"
+          placeholder="OrangeMoney, MoovMoney, +22670000000"
+          value={raw}
+          onChange={(e) => commit(e.target.value)}
+        />
+        <p className="mt-1 text-xs text-muted-foreground">
+          Nom exact affiché par le téléphone ou numéro E.164, sans tenir compte des majuscules. Vide : tous les expéditeurs — y compris
+          les conversations personnelles du propriétaire.
+        </p>
+      </fieldset>
     </Section>
   );
 }
