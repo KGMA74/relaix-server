@@ -129,6 +129,15 @@ func TestUSSDAcceptsAPinPlaceholder(t *testing.T) {
 	if got := decode[jobResponse](t, rec); got.Body != "*144*2*1*70000000*5000*{pin}#" {
 		t.Errorf("body = %q: the placeholder is no secret and stays visible", got.Body)
 	}
+	// The PIN a menu asks for on its last screen: a reply like any other,
+	// filled in on the phone.
+	menu := h.do(t, http.MethodPost, "/ussd", ussdRequest{DeviceID: &dev, Code: "*144#", Replies: []string{"2", "1", "{pin}"}})
+	if menu.Code != http.StatusAccepted {
+		t.Fatalf("menu status = %d: %s", menu.Code, menu.Body)
+	}
+	if got := decode[jobResponse](t, menu); len(got.Replies) != 3 || got.Replies[2] != "{pin}" {
+		t.Errorf("replies = %q, want the placeholder kept for the phone", got.Replies)
+	}
 	bad := h.do(t, http.MethodPost, "/ussd", ussdRequest{DeviceID: &dev, Code: "*144*{code}#"})
 	if bad.Code != http.StatusBadRequest {
 		t.Errorf("another placeholder = %d, want 400", bad.Code)

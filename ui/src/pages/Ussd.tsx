@@ -41,12 +41,16 @@ export function UssdPage() {
   const [jobId, setJobId] = useState<string>();
 
   const device = capable.find((d) => d.deviceId === deviceId);
-  const usesPin = code.includes("{pin}");
   const menus = device?.capabilities.includes("ussd_menu") ?? false;
   const replies = repliesRaw
     .split(/[,\n]/)
     .map((r) => r.trim())
     .filter(Boolean);
+  const sentReplies = menus ? replies : [];
+  const usesPin = code.includes("{pin}") || sentReplies.some((r) => r.includes("{pin}"));
+  // What the phone approves a menu as: the all-in-one code it amounts to,
+  // *144# answered 2, 1, {pin} being *144*2*1*{pin}#. Same rule as the agent.
+  const session = sentReplies.length ? code.trim().replace(/#$/, "") + "*" + sentReplies.join("*") + "#" : code.trim();
   const codeOk = USSD_CODE.test(code.trim()) && code.trim().length <= MAX_CODE;
 
   const run = useMutation({
@@ -140,6 +144,14 @@ export function UssdPage() {
               <p className="mt-1 text-xs text-muted-foreground">
                 <code>{"{pin}"}</code> sera remplacé par le téléphone avec le PIN de la SIM, gardé chez lui — seulement si ce modèle de code y a
                 été approuvé, dans ses plafonds.
+                {sentReplies.length > 0 && (
+                  <>
+                    {" "}
+                    Avec des réponses, le modèle à approuver sur le téléphone est la session entière :{" "}
+                    <code className="break-all">{session}</code> (un montant ou un numéro variable s'y écrit <code>{"{amount}"}</code>,{" "}
+                    <code>{"{to}"}</code>).
+                  </>
+                )}
                 {device && !device.capabilities.includes("ussd_pin") && " L'app de ce téléphone doit être mise à jour pour cela."}
               </p>
             ) : (
@@ -156,14 +168,14 @@ export function UssdPage() {
             <input
               id="ussd-replies"
               className="input font-mono"
-              placeholder="2, 1, 70000000, 5000"
+              placeholder="2, 1, 70000000, 5000, {pin}"
               value={repliesRaw}
               disabled={!menus}
               onChange={(e) => setRepliesRaw(e.target.value)}
             />
             <p className="mt-1 text-xs text-muted-foreground">
               {menus
-                ? "Tapées dans l'ordre, une par écran, comme vous le feriez à la main."
+                ? "Tapées dans l'ordre, une par écran, comme vous le feriez à la main. Le PIN demandé à un écran s'écrit {pin}."
                 : "Ce téléphone n'exécute qu'un code complet : préférez la forme tout-en-un (*144*2*1*…#)."}
             </p>
           </div>
