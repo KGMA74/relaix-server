@@ -3,6 +3,7 @@ package policy
 import (
 	"encoding/json"
 	"errors"
+	"maps"
 	"os"
 	"strings"
 	"testing"
@@ -16,6 +17,28 @@ type vector struct {
 	Fields     map[string]string `json:"fields"`
 	Template   string            `json:"template"`
 	Rendered   string            `json:"rendered"`
+	// A webhook body meant as JSON, what it renders to, and the fields that
+	// read as numbers (as JSON literals).
+	JSONTemplate string            `json:"jsonTemplate"`
+	JSONRendered string            `json:"jsonRendered"`
+	Numbers      map[string]string `json:"numbers"`
+}
+
+func TestIsJSONTemplate(t *testing.T) {
+	for tmpl, want := range map[string]bool{
+		`{"a": 1}`:          true,
+		` { "a": {amount}}`: true,
+		`{}`:                true,
+		`[{amount}]`:        true,
+		`{amount}`:          false,
+		`{amount} recus`:    false,
+		`Merci {amount}`:    false,
+		``:                  false,
+	} {
+		if got := IsJSONTemplate(tmpl); got != want {
+			t.Errorf("IsJSONTemplate(%q) = %v, want %v", tmpl, got, want)
+		}
+	}
 }
 
 type vectorSMS struct {
@@ -48,6 +71,23 @@ func TestAutomationVectors(t *testing.T) {
 			if v.Template != "" {
 				if got := Render(v.Template, fields); got != v.Rendered {
 					t.Errorf("rendered %q, want %q", got, v.Rendered)
+				}
+			}
+			if v.JSONTemplate != "" {
+				if !IsJSONTemplate(v.JSONTemplate) {
+					t.Errorf("%q not read as a JSON template", v.JSONTemplate)
+				}
+				got := RenderJSON(v.JSONTemplate, fields)
+				if got != v.JSONRendered {
+					t.Errorf("json rendered %s, want %s", got, v.JSONRendered)
+				}
+				if !json.Valid([]byte(got)) {
+					t.Errorf("json rendered is not JSON: %s", got)
+				}
+			}
+			if v.Numbers != nil {
+				if got := Numbers(fields); !maps.Equal(got, v.Numbers) {
+					t.Errorf("numbers = %v, want %v", got, v.Numbers)
 				}
 			}
 		})
@@ -91,6 +131,15 @@ func TestAutomationValidation(t *testing.T) {
 		}, "not a field"},
 		{"webhook", func(a *Automation) {
 			a.Actions = []Action{{Type: ActionWebhook, URL: "https://x.test/h", Body: `{"a":"{amount}"}`}}
+		}, ""},
+		{"webhook json with a typed field", func(a *Automation) {
+			a.Actions = []Action{{Type: ActionWebhook, URL: "https://x.test/h", Body: `{"amount": {amount}, "from": "{from}"}`}}
+		}, ""},
+		{"webhook json broken once filled", func(a *Automation) {
+			a.Actions = []Action{{Type: ActionWebhook, URL: "https://x.test/h", Body: `{"amount": {amount} {from}}`}}
+		}, "not valid JSON"},
+		{"webhook plain text body is not held to JSON", func(a *Automation) {
+			a.Actions = []Action{{Type: ActionWebhook, URL: "https://x.test/h", Body: `{amount} recus de {from`}}
 		}, ""},
 		{"webhook bad url", func(a *Automation) { a.Actions = []Action{{Type: ActionWebhook, URL: "ftp://x"}} }, "url"},
 		{"ussd with pin", func(a *Automation) { a.Actions = []Action{{Type: ActionUSSD, Code: "*144*2*1*{from}*{amount}*{pin}#"}} }, ""},

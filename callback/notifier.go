@@ -26,6 +26,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/KGMA74/relaix-server/policy"
 	"github.com/KGMA74/relaix-server/store"
 )
 
@@ -36,8 +37,10 @@ const (
 	// HeaderTimestamp is the unix second the request was signed. It is part of
 	// the signed material, so it cannot be edited to extend a replay window.
 	HeaderTimestamp = "X-Relaix-Timestamp"
-	// HeaderDelivery identifies one attempt, so a receiver can correlate its
-	// logs with ours across retries.
+	// HeaderDelivery names what the callback is about — the job, or the
+	// received message — and stays the same across retries: a receiver that
+	// has already handled a delivery id answers 2xx and does nothing, so a
+	// retry after a lost response never credits a payment twice.
 	HeaderDelivery = "X-Relaix-Delivery"
 )
 
@@ -258,6 +261,9 @@ type InboundPayload struct {
 	// AutomationID and Fields: set when an automation forwarded it.
 	AutomationID string            `json:"automationId,omitempty"`
 	Fields       map[string]string `json:"fields,omitempty"`
+	// Numbers repeats the fields that read as numbers, as numbers ("5 000"
+	// gives 5000), so a receiver does not parse amounts itself.
+	Numbers map[string]json.Number `json:"numbers,omitempty"`
 }
 
 func inboundPayloadFor(m *store.InboundMessage) InboundPayload {
@@ -273,6 +279,12 @@ func inboundPayloadFor(m *store.InboundMessage) InboundPayload {
 	}
 	if len(m.Fields) > 0 {
 		p.Fields = m.Fields
+		for k, v := range policy.Numbers(m.Fields) {
+			if p.Numbers == nil {
+				p.Numbers = map[string]json.Number{}
+			}
+			p.Numbers[k] = json.Number(v)
+		}
 	}
 	if m.DeviceID != nil {
 		id := m.DeviceID.String()

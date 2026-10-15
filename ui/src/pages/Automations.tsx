@@ -8,7 +8,7 @@ import type { Automation, AutomationAction, AutomationActionType, AutomationCond
 import { CardHeader, ConfirmDialog, Empty, ErrorNote, Modal, PageHeader, Pill } from "../components/common";
 import { formatDateTime } from "../lib/format";
 import { Switch } from "@/components/ui/switch";
-import { fieldsOf, match, patternError, render, renderUssd, unknownFields } from "../lib/automation";
+import { fieldsOf, jsonBodyError, match, numbersOf, patternError, render, renderBody, renderUssd, unknownFields } from "../lib/automation";
 import { shortId } from "../lib/format";
 import { cn } from "@/lib/utils";
 
@@ -238,6 +238,8 @@ function AutomationEditor({
     if (unknown.length) problems.push(`Action ${i + 1} : champ(s) inconnu(s) ${unknown.map((u) => `{${u}}`).join(", ")}`);
     if (act.type === "reply_sms" && (!act.to?.trim() || !act.text?.trim())) problems.push(`Action ${i + 1} : destinataire et texte requis.`);
     if (act.type === "webhook" && !/^https?:\/\/[^/]+/.test(act.url ?? "")) problems.push(`Action ${i + 1} : URL http(s) requise.`);
+    const bodyError = act.type === "webhook" ? jsonBodyError(act.body, fields) : null;
+    if (bodyError) problems.push(`Action ${i + 1} : ${bodyError}`);
     if (act.type === "ussd" && !/^[*#]([0-9*#+]|\{[A-Za-z][A-Za-z0-9]*\})*#$/.test(act.code ?? "")) {
       problems.push(`Action ${i + 1} : code USSD invalide (ex. *144*2*1*{from}*{amount}*{pin}#).`);
     }
@@ -392,10 +394,15 @@ function AutomationEditor({
                   <input className="input" type="url" placeholder="https://…" value={act.url ?? ""} onChange={(e) => setAction(i, { url: e.target.value })} />
                   <textarea
                     className="input min-h-16 font-mono"
-                    placeholder='Corps (facultatif) — vide : JSON avec le SMS et ses champs. Ex. {"montant":"{amount}"}'
+                    placeholder='Corps (facultatif) — vide : JSON avec le SMS et ses champs. Ex. {"montant": {amount}, "de": "{from}", "ref": "{ref}"}'
                     value={act.body ?? ""}
                     onChange={(e) => setAction(i, { body: e.target.value })}
                   />
+                  <p className="text-xs text-muted-foreground">
+                    En JSON, un champ entre guillemets (<code>"{"{from}"}"</code>) arrive en texte, échappé ; sans guillemets (<code>{"{amount}"}</code>) en
+                    nombre — « 5 000 » devient 5000 —, ou <code>null</code> s'il est vide. Chaque envoi porte l'en-tête{" "}
+                    <code>X-Relaix-Delivery</code>, le même à chaque nouvel essai : ignorez un id déjà traité.
+                  </p>
                   <input className="input" placeholder="Secret de signature (facultatif)" value={act.secret ?? ""} onChange={(e) => setAction(i, { secret: e.target.value })} />
                 </>
               )}
@@ -484,6 +491,7 @@ function Tester({ automation }: { automation: Automation }) {
   const [body, setBody] = useState("");
   const result = body ? match({ ...automation, enabled: true }, { sender, body, receivedAt: new Date().toISOString(), sim: automation.subscriptionId ?? 0 }) : null;
   const extracted = result ? Object.entries(result.fields).filter(([k]) => !["sender", "body", "receivedAt", "sim"].includes(k)) : [];
+  const numbers = result ? numbersOf(result.fields) : {};
 
   return (
     <section className="space-y-2 rounded-md border bg-muted/40 p-3">
@@ -506,7 +514,10 @@ function Tester({ automation }: { automation: Automation }) {
               {extracted.map(([k, v]) => (
                 <div key={k} className="contents">
                   <dt className="text-muted-foreground">{k}</dt>
-                  <dd>{v}</dd>
+                  <dd>
+                    {v}
+                    {k in numbers && String(numbers[k]) !== v && <span className="text-muted-foreground"> → {numbers[k]}</span>}
+                  </dd>
                 </div>
               ))}
             </dl>
@@ -517,7 +528,7 @@ function Tester({ automation }: { automation: Automation }) {
                 <li key={i} className={cn(act.type === "ussd" && "font-mono")}>
                   {act.type === "forward" && "Transmis à la passerelle avec ces champs"}
                   {act.type === "reply_sms" && `SMS à ${render(act.to ?? "", result.fields)} : « ${render(act.text ?? "", result.fields)} »`}
-                  {act.type === "webhook" && `POST ${act.url}${act.body ? ` — ${render(act.body, result.fields)}` : ""}`}
+                  {act.type === "webhook" && `POST ${act.url}${act.body ? ` — ${renderBody(act.body, result.fields)}` : ""}`}
                   {act.type === "ussd" && renderUssd(act.code ?? "", result.fields)}
                 </li>
               ))}

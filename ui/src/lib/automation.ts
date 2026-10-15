@@ -123,6 +123,108 @@ export function renderUssd(template: string, fields: Record<string, string>): st
   return render(template, compact);
 }
 
+/**
+ * A webhook body meant as JSON: an object or an array. "{amount}" alone is a
+ * field, not an object — an object opens on a quote or closes at once.
+ */
+export function isJsonTemplate(template: string): boolean {
+  const t = template.replace(/^[ \t\r\n]+/, "");
+  if (t.startsWith("[")) return true;
+  if (!t.startsWith("{")) return false;
+  const rest = t.slice(1).replace(/^[ \t\r\n]+/, "");
+  return rest.startsWith('"') || rest.startsWith("}");
+}
+
+const PLACEHOLDER_AT = /^\{([A-Za-z][A-Za-z0-9]*)\}/;
+const JSON_NUMBER = /^-?(0|[1-9][0-9]*)(\.[0-9]+)?$/;
+
+/** v as a JSON number literal when it reads as an amount; not "+226…" or "0701…". */
+export function jsonNumber(v: string): string | null {
+  const s = v.replace(/[   ]/g, "").replace(/,/g, ".");
+  return JSON_NUMBER.test(s) ? s : null;
+}
+
+/** v as the inside of a JSON string literal — the same bytes as the gateway and the phone. */
+export function escapeJson(v: string): string {
+  let out = "";
+  for (const ch of v) {
+    const c = ch.codePointAt(0) ?? 0;
+    if (ch === '"') out += '\\"';
+    else if (ch === "\\") out += "\\\\";
+    else if (ch === "\n") out += "\\n";
+    else if (ch === "\r") out += "\\r";
+    else if (ch === "\t") out += "\\t";
+    else if (ch === "\b") out += "\\b";
+    else if (ch === "\f") out += "\\f";
+    else if (c < 0x20) out += "\\u" + c.toString(16).padStart(4, "0");
+    else out += ch;
+  }
+  return out;
+}
+
+function jsonValue(v: string): string {
+  if (v === "") return "null";
+  return jsonNumber(v) ?? `"${escapeJson(v)}"`;
+}
+
+/**
+ * Fills a JSON body so it stays JSON: a field inside quotes is escaped there,
+ * a bare one is a value — a number when it reads as one, null when empty,
+ * else a string. Same rules as policy.RenderJSON.
+ */
+export function renderJson(template: string, fields: Record<string, string>): string {
+  let out = "";
+  let inString = false;
+  for (let i = 0; i < template.length; ) {
+    const c = template[i];
+    if (inString && c === "\\" && i + 1 < template.length) {
+      out += template.slice(i, i + 2);
+      i += 2;
+      continue;
+    }
+    if (c === '"') inString = !inString;
+    else if (c === "{") {
+      const m = PLACEHOLDER_AT.exec(template.slice(i));
+      if (m) {
+        const v = fields[m[1] ?? ""] ?? "";
+        out += inString ? escapeJson(v) : jsonValue(v);
+        i += m[0].length;
+        continue;
+      }
+    }
+    out += c;
+    i++;
+  }
+  return out;
+}
+
+/** A webhook body as the phone will post it: JSON-aware when it is JSON. */
+export function renderBody(template: string, fields: Record<string, string>): string {
+  return isJsonTemplate(template) ? renderJson(template, fields) : render(template, fields);
+}
+
+/** Why a JSON body would not be JSON once filled in, or null. */
+export function jsonBodyError(template: string | undefined, known: string[]): string | null {
+  if (!template || !isJsonTemplate(template)) return null;
+  try {
+    JSON.parse(renderJson(template, Object.fromEntries(known.map((k) => [k, "0"]))));
+    return null;
+  } catch {
+    return 'JSON invalide une fois rempli — un champ texte entre guillemets ("{from}"), un nombre sans ({amount}).';
+  }
+}
+
+/** The fields that read as numbers, as the webhook's "numbers" carries them. */
+export function numbersOf(fields: Record<string, string>): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const [k, v] of Object.entries(fields)) {
+    if ((BUILTINS as readonly string[]).includes(k)) continue;
+    const n = jsonNumber(v);
+    if (n !== null) out[k] = Number(n);
+  }
+  return out;
+}
+
 /** Placeholders a template uses that the automation does not have. */
 export function unknownFields(template: string | undefined, known: string[], allowPin = false): string[] {
   const out: string[] = [];

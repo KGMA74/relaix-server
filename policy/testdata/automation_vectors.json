@@ -58,6 +58,30 @@
       "sms": { "sender": "Bank", "body": "Debit 10,25 EUR", "receivedAt": "2026-10-13T08:00:00Z", "sim": 0 },
       "match": true,
       "fields": { "amount": "10,25" }
+    },
+    {
+      "name": "a JSON body: quoted fields escaped, bare fields typed",
+      "automation": {
+        "enabled": true,
+        "senders": ["OrangeMoney"],
+        "pattern": "Vous avez recu (?<amount>[0-9 ]+) FCFA de (?<from>\\+?[0-9]+)\\. Ref: (?<ref>[A-Z0-9]+\\.[0-9]+)"
+      },
+      "sms": { "sender": "OrangeMoney", "body": "Vous avez recu 5 000 FCFA de 70123456. Ref: CI230512.1234.\nMotif: \"loyer\" C:\\dossier", "receivedAt": "2026-10-13T08:00:00Z", "sim": 1 },
+      "match": true,
+      "fields": { "amount": "5 000", "from": "70123456", "ref": "CI230512.1234" },
+      "jsonTemplate": "{\"montant\": {amount}, \"de\": \"{from}\", \"ref\": \"{ref}\", \"texte\": \"{body}\", \"sim\": {sim}, \"aussi\": \"{amount} FCFA\"}",
+      "jsonRendered": "{\"montant\": 5000, \"de\": \"70123456\", \"ref\": \"CI230512.1234\", \"texte\": \"Vous avez recu 5 000 FCFA de 70123456. Ref: CI230512.1234.\\nMotif: \\\"loyer\\\" C:\\\\dossier\", \"sim\": 1, \"aussi\": \"5 000 FCFA\"}",
+      "numbers": { "amount": "5000", "from": "70123456" }
+    },
+    {
+      "name": "a JSON body: decimal comma, an unquoted phone number stays text, an empty field is null",
+      "automation": { "enabled": true, "pattern": "solde est de (?<balance>[0-9 ]+(?:,[0-9]+)?) FCFA(?: ref (?<ref>[A-Z0-9]+))?" },
+      "sms": { "sender": "+22670123456", "body": "Votre solde est de 684,62 FCFA", "receivedAt": "2026-10-13T08:00:00Z", "sim": 0 },
+      "match": true,
+      "fields": { "balance": "684,62", "ref": "" },
+      "jsonTemplate": "[{balance}, {sender}, {ref}, \"{balance}\", {sim}]",
+      "jsonRendered": "[684.62, \"+22670123456\", null, \"684,62\", 0]",
+      "numbers": { "balance": "684.62" }
     }
   ]
 }

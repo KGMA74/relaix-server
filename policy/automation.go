@@ -1,6 +1,7 @@
 package policy
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"regexp"
@@ -324,7 +325,22 @@ func (act Action) validate(where string, fields []string) error {
 		if len(act.Body) > maxWebhookBodyLen || len(act.Secret) > maxSecretLen {
 			return invalid("%s: body at most %d characters, secret at most %d", where, maxWebhookBodyLen, maxSecretLen)
 		}
-		return uses("body", act.Body, false)
+		if err := uses("body", act.Body, false); err != nil {
+			return err
+		}
+		// A body meant as JSON must still be JSON once filled in: checked
+		// here, with every field set, rather than found broken by the
+		// receiver on the first payment.
+		if IsJSONTemplate(act.Body) {
+			sample := map[string]string{}
+			for _, f := range fields {
+				sample[f] = "0"
+			}
+			if !json.Valid([]byte(RenderJSON(act.Body, sample))) {
+				return invalid(`%s.body: not valid JSON once filled in — quote a field for text ("{from}"), leave it bare for a number ({amount})`, where)
+			}
+		}
+		return nil
 	case ActionUSSD:
 		if !ussdTemplate.MatchString(act.Code) {
 			return invalid("%s.code: a USSD code, fields allowed: *144*2*1*{from}*{amount}*{pin}#", where)

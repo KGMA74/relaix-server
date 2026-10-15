@@ -20,8 +20,11 @@ func TestInboundWebhookIsSignedRetriedAndDelivered(t *testing.T) {
 	secret := []byte("s3cret")
 	var calls atomic.Int32
 	var got InboundPayload
+	var raw []byte
+	var deliveries []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
+		deliveries = append(deliveries, r.Header.Get(HeaderDelivery))
 		if !Verify(secret, r.Header.Get(HeaderTimestamp), body, r.Header.Get(HeaderSignature)) {
 			t.Error("bad signature")
 		}
@@ -29,6 +32,7 @@ func TestInboundWebhookIsSignedRetriedAndDelivered(t *testing.T) {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			return
 		}
+		raw = body
 		_ = json.Unmarshal(body, &got)
 	}))
 	defer srv.Close()
@@ -37,7 +41,8 @@ func TestInboundWebhookIsSignedRetriedAndDelivered(t *testing.T) {
 	dev := st.SeedDevice(&store.Device{Enabled: true}).ID
 	now := time.Date(2026, 10, 1, 8, 0, 0, 0, time.UTC)
 	m, _, err := st.Inbound().Record(ctx, &store.InboundMessage{
-		DeviceID: &dev, DeviceRef: "r", Sender: "OrangeMoney", Body: "Vous avez recu 5000 FCFA", ReceivedAt: now,
+		DeviceID: &dev, DeviceRef: "r", Sender: "OrangeMoney", Body: "Vous avez recu 5 000 FCFA de 70123456", ReceivedAt: now,
+		AutomationID: "a1", Fields: map[string]string{"amount": "5 000", "from": "070123456", "sim": "1"},
 		Webhook: store.CallbackState{URL: srv.URL, NextAttemptAt: &now},
 	})
 	if err != nil {
@@ -67,5 +72,18 @@ func TestInboundWebhookIsSignedRetriedAndDelivered(t *testing.T) {
 	}
 	if got.Type != "sms.received" || got.Sender != "OrangeMoney" || got.MessageID != m.ID.String() || got.Attempt != 2 {
 		t.Errorf("payload = %+v", got)
+	}
+	// One id for both attempts: the receiver dedupes on it.
+	if len(deliveries) != 2 || deliveries[0] != m.ID.String() || deliveries[1] != deliveries[0] {
+		t.Errorf("delivery headers = %q, want %s twice", deliveries, m.ID)
+	}
+	// The amount as a number; a number with a leading zero, and the sim, stay
+	// text only.
+	var typed struct {
+		Numbers map[string]any `json:"numbers"`
+	}
+	_ = json.Unmarshal(raw, &typed)
+	if len(typed.Numbers) != 1 || typed.Numbers["amount"] != float64(5000) {
+		t.Errorf("numbers = %v, want {amount: 5000}", typed.Numbers)
 	}
 }
