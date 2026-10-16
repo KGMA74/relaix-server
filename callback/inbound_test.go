@@ -19,7 +19,10 @@ func TestInboundWebhookIsSignedRetriedAndDelivered(t *testing.T) {
 	ctx := context.Background()
 	secret := []byte("s3cret")
 	var calls atomic.Int32
-	var got InboundPayload
+	var got struct {
+		Event string         `json:"event"`
+		Data  InboundPayload `json:"data"`
+	}
 	var raw []byte
 	var deliveries []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -70,7 +73,7 @@ func TestInboundWebhookIsSignedRetriedAndDelivered(t *testing.T) {
 	if done.Webhook.DeliveredAt == nil {
 		t.Fatalf("not delivered: %+v", done.Webhook)
 	}
-	if got.Type != "sms.received" || got.Sender != "OrangeMoney" || got.MessageID != m.ID.String() || got.Attempt != 2 {
+	if got.Event != "sms.received" || got.Data.Sender != "OrangeMoney" || got.Data.MessageID != m.ID.String() || got.Data.Attempt != 2 {
 		t.Errorf("payload = %+v", got)
 	}
 	// One id for both attempts: the receiver dedupes on it.
@@ -80,10 +83,12 @@ func TestInboundWebhookIsSignedRetriedAndDelivered(t *testing.T) {
 	// The amount as a number; a number with a leading zero, and the sim, stay
 	// text only.
 	var typed struct {
-		Numbers map[string]any `json:"numbers"`
+		Data struct {
+			Numbers map[string]any `json:"numbers"`
+		} `json:"data"`
 	}
 	_ = json.Unmarshal(raw, &typed)
-	if len(typed.Numbers) != 1 || typed.Numbers["amount"] != float64(5000) {
-		t.Errorf("numbers = %v, want {amount: 5000}", typed.Numbers)
+	if len(typed.Data.Numbers) != 1 || typed.Data.Numbers["amount"] != float64(5000) {
+		t.Errorf("numbers = %v, want {amount: 5000}", typed.Data.Numbers)
 	}
 }

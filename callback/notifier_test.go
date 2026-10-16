@@ -97,10 +97,17 @@ func TestNotifySendsSignedPayload(t *testing.T) {
 		t.Errorf("delivery header = %q, want %q", got.delivery, job.ID)
 	}
 
-	var p Payload
-	if err := json.Unmarshal(got.body, &p); err != nil {
+	var e struct {
+		Event string  `json:"event"`
+		Data  Payload `json:"data"`
+	}
+	if err := json.Unmarshal(got.body, &e); err != nil {
 		t.Fatalf("payload is not JSON: %v", err)
 	}
+	if e.Event != "sms.sent" {
+		t.Errorf("event = %q, want sms.sent", e.Event)
+	}
+	p := e.Data
 	if p.JobID != job.ID.String() || p.Status != string(store.JobSent) {
 		t.Errorf("payload = %+v", p)
 	}
@@ -265,10 +272,14 @@ func TestAttemptCountIsReported(t *testing.T) {
 		t.Fatalf("Notify: %v", err)
 	}
 
-	var p Payload
-	if err := json.Unmarshal(got.body, &p); err != nil {
+	var e struct {
+		Event string  `json:"event"`
+		Data  Payload `json:"data"`
+	}
+	if err := json.Unmarshal(got.body, &e); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
+	p := e.Data
 	if p.Attempt != 4 {
 		t.Errorf("attempt = %d, want 4 after 3 failures", p.Attempt)
 	}
@@ -315,5 +326,24 @@ func TestAccountsCanSignWithTheirOwnSecret(t *testing.T) {
 	err := n.Notify(context.Background(), terminalJob(srv.URL))
 	if err == nil || errors.Is(err, ErrPermanent) {
 		t.Errorf("err = %v, want a retryable error", err)
+	}
+}
+
+func TestJobEventNames(t *testing.T) {
+	for _, tc := range []struct {
+		kind   store.JobKind
+		status store.JobStatus
+		want   string
+	}{
+		{store.KindSMS, store.JobSent, "sms.sent"},
+		{store.KindSMS, store.JobDelivered, "sms.delivered"},
+		{store.KindSMS, store.JobFailed, "sms.failed"},
+		{"", store.JobCancelled, "sms.cancelled"},
+		{store.KindUSSD, store.JobSent, "ussd.completed"},
+		{store.KindUSSD, store.JobFailed, "ussd.failed"},
+	} {
+		if got := JobEvent(&store.Job{Kind: tc.kind, Status: tc.status}); got != tc.want {
+			t.Errorf("%s/%s: %q, want %q", tc.kind, tc.status, got, tc.want)
+		}
 	}
 }

@@ -324,7 +324,7 @@ func testAutomation(_ context.Context, _ *caller, args json.RawMessage) (any, er
 			step["url"] = act.URL
 			switch {
 			case act.Body == "":
-				step["body"] = "(default JSON: deliveryId, automation, SMS, fields, numbers)"
+				step["body"] = `(default: {"event": "automation.triggered", "data": {deliveryId, automation, SMS, fields, numbers}})`
 			case policy.IsJSONTemplate(act.Body):
 				step["body"] = policy.RenderJSON(act.Body, fields)
 			default:

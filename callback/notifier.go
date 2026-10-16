@@ -52,7 +52,7 @@ const (
 // noise in someone else's logs.
 var ErrPermanent = errors.New("callback: permanent failure")
 
-// Payload is the JSON body of a callback.
+// Payload is the data of a job event (Event, JobEvent).
 //
 // Field names are the API's public vocabulary — camelCase, matching what the
 // REST API accepts — rather than the database's column names, so the storage
@@ -128,7 +128,34 @@ func (n *Notifier) Notify(ctx context.Context, job *store.Job) error {
 	if job.Callback.URL == "" {
 		return nil
 	}
-	return n.post(ctx, job.Callback.URL, job.AccountID, job.ID, payloadFor(job))
+	return n.post(ctx, job.Callback.URL, job.AccountID, job.ID, Event{Event: JobEvent(job), Data: payloadFor(job)})
+}
+
+// Event is the body of every webhook: what happened, and its payload. One
+// shape for all of them, so a receiver routes on event before reading data.
+type Event struct {
+	Event string `json:"event"`
+	Data  any    `json:"data"`
+}
+
+// Event names.
+const (
+	EventSMSReceived = "sms.received"
+)
+
+// JobEvent names a job's final state: "<kind>.<status>" — sms.sent,
+// sms.delivered, sms.failed, sms.cancelled — except that a USSD code the
+// network answered is ussd.completed: nothing was "sent" from the caller's
+// point of view.
+func JobEvent(job *store.Job) string {
+	kind, status := string(job.Kind), string(job.Status)
+	if kind == "" {
+		kind = "sms"
+	}
+	if kind == "ussd" && job.Status == store.JobSent {
+		status = "completed"
+	}
+	return kind + "." + status
 }
 
 // NotifyInbound posts one received SMS, signed and classified exactly like a
@@ -137,7 +164,7 @@ func (n *Notifier) NotifyInbound(ctx context.Context, m *store.InboundMessage) e
 	if m.Webhook.URL == "" {
 		return nil
 	}
-	return n.post(ctx, m.Webhook.URL, m.AccountID, m.ID, inboundPayloadFor(m))
+	return n.post(ctx, m.Webhook.URL, m.AccountID, m.ID, Event{Event: EventSMSReceived, Data: inboundPayloadFor(m)})
 }
 
 // post signs and sends one payload. delivery names what it is about, for the
@@ -247,10 +274,8 @@ func payloadFor(job *store.Job) Payload {
 	return p
 }
 
-// InboundPayload is the JSON body posted for a received SMS. Type tells it
-// apart from a job callback when both go to the same URL.
+// InboundPayload is the data of an sms.received event.
 type InboundPayload struct {
-	Type           string  `json:"type"`
 	MessageID      string  `json:"messageId"`
 	DeviceID       *string `json:"deviceId,omitempty"`
 	SubscriptionID *int32  `json:"subscriptionId,omitempty"`
@@ -268,7 +293,6 @@ type InboundPayload struct {
 
 func inboundPayloadFor(m *store.InboundMessage) InboundPayload {
 	p := InboundPayload{
-		Type:           "sms.received",
 		MessageID:      m.ID.String(),
 		SubscriptionID: m.SubscriptionID,
 		Sender:         m.Sender,

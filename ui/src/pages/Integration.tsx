@@ -116,10 +116,15 @@ curl -X DELETE ${base}/jobs/$JOB_ID -H "Authorization: Bearer $RELAIX_API_KEY"`}
           </p>
           <Code>{`curl "${base}/inbox?sender=OrangeMoney&limit=20" \\
   -H "Authorization: Bearer $RELAIX_API_KEY"`}</Code>
-          <Code>{`{"type":"sms.received","messageId":"…","deviceId":"…","subscriptionId":2,
- "sender":"OrangeMoney","body":"Vous avez recu 5 000 FCFA de 70123456…",
- "receivedAt":"2026-10-16T09:12:00Z","attempt":1,
- "automationId":"…","fields":{"amount":"5 000","from":"70123456"},"numbers":{"amount":5000}}`}</Code>
+          <Code>{`{
+  "event": "sms.received",
+  "data": {
+    "messageId": "…", "deviceId": "…", "subscriptionId": 2,
+    "sender": "OrangeMoney", "body": "Vous avez recu 5 000 FCFA de 70123456…",
+    "receivedAt": "2026-10-16T09:12:00Z", "attempt": 1,
+    "automationId": "…", "fields": {"amount": "5 000", "from": "70123456"}, "numbers": {"amount": 5000}
+  }
+}`}</Code>
           <p>
             <code>automationId</code>, <code>fields</code> et <code>numbers</code> n'apparaissent que si une automatisation a transmis le
             SMS : <code>numbers</code> reprend les champs qui se lisent comme des nombres (« 5 000 » → <code>5000</code>).
@@ -151,7 +156,24 @@ curl -X DELETE ${base}/jobs/$JOB_ID -H "Authorization: Bearer $RELAIX_API_KEY"`}
 X-Relaix-Signature: sha256=<hex>
 X-Relaix-Delivery: <jobId | messageId | id de livraison>
 
-{"jobId":"…","kind":"sms","status":"sent","recipient":"+237670000000","partsSent":1,"attempt":1}`}</Code>
+{
+  "event": "sms.sent",
+  "data": {"jobId": "…", "kind": "sms", "status": "sent", "recipient": "+237670000000", "partsSent": 1, "attempt": 1}
+}`}</Code>
+          <p>
+            Toujours la même enveloppe <code>{`{"event": "<nom>", "data": {…}}`}</code> : aiguillez sur <code>event</code>, lisez{" "}
+            <code>data</code>.
+          </p>
+          <Table
+            rows={[
+              ["sms.sent / sms.delivered", "SMS parti, puis accusé de réception de l'opérateur (si renvoyé)."],
+              ["sms.failed / sms.cancelled", "SMS en échec (errorCode, errorMessage) ou annulé."],
+              ["ussd.completed", "Le réseau a répondu au code : data.responses, un écran par entrée."],
+              ["ussd.failed / ussd.cancelled", "Code en échec (ex. PIN_REFUSED) ou annulé."],
+              ["sms.received", "SMS reçu transmis par un téléphone (voir plus haut)."],
+              ["automation.triggered", "Webhook d'une automatisation dont le corps est laissé vide."],
+            ]}
+          />
           <p>
             <code>X-Relaix-Delivery</code> est <strong>le même à chaque nouvel essai</strong> : notez les ids traités et répondez{" "}
             <code>2xx</code> sans rien refaire à un id déjà vu — un paiement n'est jamais compté deux fois. La signature est un

@@ -402,7 +402,7 @@ function AutomationEditor({
                   <input className="input" type="url" placeholder="https://…" value={act.url ?? ""} onChange={(e) => setAction(i, { url: e.target.value })} />
                   <textarea
                     className="input min-h-16 font-mono"
-                    placeholder='Corps (facultatif) — vide : JSON avec le SMS et ses champs. Ex. {"montant": {amount}, "de": "{from}", "ref": "{ref}"}'
+                    placeholder='Corps (facultatif) — vide : {"event": "automation.triggered", "data": {le SMS et ses champs}}. Ex. {"montant": {amount}, "de": "{from}", "ref": "{ref}"}'
                     value={act.body ?? ""}
                     onChange={(e) => setAction(i, { body: e.target.value })}
                   />
