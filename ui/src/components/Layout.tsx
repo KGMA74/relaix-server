@@ -1,6 +1,6 @@
-import { Code2, Hash, History, Inbox, LayoutDashboard, LogOut, Moon, Send, Smartphone, Sun, Workflow, type LucideIcon } from "lucide-react";
+import { Code2, Hash, History, Inbox, LayoutDashboard, LogOut, Moon, Search, Send, Smartphone, Sun, Workflow, type LucideIcon } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { api } from "@/api/client";
 import { useAuth } from "@/auth";
@@ -29,6 +29,10 @@ import { useTheme } from "@/hooks/use-theme";
 import { useLive, useLiveEvent, type LiveStatus } from "@/lib/live";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { CommandPalette } from "./CommandPalette";
+
+// The shortcut as the keyboard shows it.
+const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
 
 export interface NavItem {
   to: string;
@@ -212,6 +216,7 @@ export function Layout({ brand, extraGroups = [], footer, user }: LayoutProps = 
   const currentGroup = allGroups.find((g) => g.items.some((i) => isActive(pathname, i)));
   const current = currentGroup?.items.find((i) => isActive(pathname, i));
   const name = brand?.name ?? "Relaix";
+  const [searching, setSearching] = useState(false);
 
   return (
     // Bounded to the viewport so only the content column scrolls, never the sidebar with it.
@@ -239,6 +244,17 @@ export function Layout({ brand, extraGroups = [], footer, user }: LayoutProps = 
         </SidebarHeader>
 
         <SidebarContent>
+          <div className="px-2 pt-1 group-data-[collapsible=icon]:hidden">
+            <button
+              type="button"
+              onClick={() => setSearching(true)}
+              className="flex h-[34px] w-full items-center gap-2 rounded-md border bg-card px-2.5 text-[13px] text-muted-foreground transition-colors hover:text-foreground"
+            >
+              <Search className="size-[15px]" aria-hidden />
+              Rechercher…
+              <kbd className="ml-auto rounded-[5px] border px-1.5 font-mono text-[11px]">{isMac ? "⌘K" : "Ctrl K"}</kbd>
+            </button>
+          </div>
           <Nav groups={allGroups} />
         </SidebarContent>
 
@@ -295,6 +311,7 @@ export function Layout({ brand, extraGroups = [], footer, user }: LayoutProps = 
         </div>
       </SidebarInset>
       <LiveToasts />
+      <CommandPalette groups={allGroups} open={searching} onOpenChange={setSearching} />
       <Toaster theme={theme} position="bottom-right" richColors closeButton />
     </SidebarProvider>
   );
