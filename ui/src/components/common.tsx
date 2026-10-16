@@ -1,9 +1,10 @@
-import { AlertCircle } from "lucide-react";
+import { AlertCircle, X } from "lucide-react";
 import type { ReactNode } from "react";
 import { ApiError } from "../api/client";
 import type { JobStatus } from "../api/types";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Sheet, SheetClose, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 
 export const STATUS_LABEL: Record<JobStatus, string> = {
@@ -178,27 +179,59 @@ export function ConfirmDialog({
 }
 
 /**
- * A dialog whose content lays itself out. The first heading inside is the
- * dialog's visible title; `label` names it for screen readers.
+ * A drawer from the right, for forms and details: the page stays in view
+ * behind it. `label` is its title, `description` a line under it; the content
+ * scrolls between that header and the ModalActions, which stay in reach.
+ * Confirmations keep the centered ConfirmDialog.
  */
 export function Modal({
   children,
   onClose,
   wide,
   label = "Détails",
+  description,
 }: {
   children: ReactNode;
   onClose: () => void;
   wide?: boolean;
-  label?: string;
+  label?: ReactNode;
+  description?: ReactNode;
 }) {
   return (
-    <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className={cn("max-h-[90vh] overflow-y-auto", wide ? "sm:max-w-2xl" : "sm:max-w-md")}>
-        <DialogTitle className="sr-only">{label}</DialogTitle>
-        <DialogDescription className="sr-only">{label}</DialogDescription>
-        {children}
-      </DialogContent>
-    </Dialog>
+    <Sheet open onOpenChange={(open) => !open && onClose()}>
+      <SheetContent
+        side="right"
+        showCloseButton={false}
+        {...(description ? {} : { "aria-describedby": undefined })}
+        className={cn(
+          "gap-0 bg-popover shadow-drawer sm:rounded-l-2xl",
+          "w-full sm:max-w-none",
+          wide ? "sm:w-[640px]" : "sm:w-[440px]",
+        )}
+      >
+        <header className="flex items-start gap-3 border-b px-5 py-4">
+          <div className="min-w-0 flex-1">
+            <SheetTitle className="text-base font-semibold">{label}</SheetTitle>
+            {description && <SheetDescription className="mt-0.5 text-sm text-muted-foreground">{description}</SheetDescription>}
+          </div>
+          <SheetClose
+            aria-label="Fermer"
+            className="inline-flex size-8 shrink-0 items-center justify-center rounded-md border text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          >
+            <X className="size-4" aria-hidden />
+          </SheetClose>
+        </header>
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-5 pt-5 pb-5">{children}</div>
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+/** A drawer's buttons, kept at its foot while the content scrolls. */
+export function ModalActions({ children }: { children: ReactNode }) {
+  return (
+    <div className="sticky bottom-0 -mx-5 -mb-5 mt-auto flex flex-wrap justify-end gap-2 border-t bg-popover px-5 py-3 pt-3">
+      {children}
+    </div>
   );
 }

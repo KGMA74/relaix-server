@@ -4,7 +4,7 @@ import { useState, type ReactNode } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api, type JobQuery } from "../api/client";
 import { JOB_STATUSES, TERMINAL_STATUSES, type Job, type JobStatus } from "../api/types";
-import { ConfirmDialog, Empty, ErrorNote, Modal, PageHeader, STATUS_LABEL, StatusBadge } from "../components/common";
+import { ConfirmDialog, Empty, ErrorNote, Modal, ModalActions, PageHeader, STATUS_LABEL, StatusBadge } from "../components/common";
 import { formatDateTime, localInputToISO, shortId } from "../lib/format";
 import { usePollInterval } from "@/lib/live";
 
@@ -195,12 +195,9 @@ function JobDetail({
   const cancellable = !TERMINAL_STATUSES.includes(j.status);
 
   return (
-    <Modal onClose={onClose} wide label={`Message vers ${j.recipient}`}>
-      <div className="flex items-start justify-between gap-4 pr-8">
-        <div className="min-w-0">
-          <h2 className="font-mono text-lg font-semibold">{j.recipient}</h2>
-          <p className="truncate font-mono text-xs text-muted-foreground">{j.jobId}</p>
-        </div>
+    <Modal onClose={onClose} wide label="Message" description={<span className="font-mono text-xs">{j.jobId}</span>}>
+      <div className="flex items-center justify-between gap-4">
+        <span className="font-mono text-lg font-semibold">{j.recipient}</span>
         <StatusBadge status={j.status} />
       </div>
 
@@ -212,7 +209,7 @@ function JobDetail({
         </div>
       )}
 
-      <dl className="mt-4 grid grid-cols-2 gap-x-6 gap-y-2 text-sm sm:grid-cols-3">
+      <dl className="mt-4 grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
         <Field label="Créé">{formatDateTime(j.createdAt)}</Field>
         <Field label="Terminé">{formatDateTime(j.completedAt)}</Field>
         <Field label="Programmé">{formatDateTime(j.scheduledAt)}</Field>
@@ -246,7 +243,7 @@ function JobDetail({
         {events.data?.events.length === 0 && <li className="ml-4 text-sm text-muted-foreground">Aucun événement enregistré.</li>}
       </ol>
 
-      <div className="mt-6 flex justify-end gap-2">
+      <ModalActions>
         {cancellable && (
           <button className="btn-danger" onClick={() => setConfirming(true)}>
             Annuler l'envoi
@@ -255,7 +252,7 @@ function JobDetail({
         <button className="btn-secondary" onClick={onClose}>
           Fermer
         </button>
-      </div>
+      </ModalActions>
 
       {confirming && (
         <ConfirmDialog

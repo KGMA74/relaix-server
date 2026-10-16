@@ -5,7 +5,7 @@ import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { api } from "../api/client";
 import type { Automation, AutomationAction, AutomationActionType, AutomationCondition, Device, Policy } from "../api/types";
-import { CardHeader, ConfirmDialog, Empty, ErrorNote, Modal, PageHeader, Pill } from "../components/common";
+import { CardHeader, ConfirmDialog, Empty, ErrorNote, Modal, ModalActions, PageHeader, Pill } from "../components/common";
 import { formatDateTime } from "../lib/format";
 import { Switch } from "@/components/ui/switch";
 import { fieldsOf, jsonBodyError, match, numbersOf, patternError, render, renderBody, renderUssd, unknownFields } from "../lib/automation";
@@ -266,10 +266,13 @@ function AutomationEditor({
     set({ conditions: (a.conditions ?? []).map((x, j) => (j === i ? { ...x, ...patch } : x)) });
 
   return (
-    <Modal onClose={onClose} wide label="Automatisation">
-      <h2 className="pr-8 text-lg font-semibold">{initial.id ? "Modifier l'automatisation" : "Nouvelle automatisation"}</h2>
-
-      <div className="mt-4 space-y-5">
+    <Modal
+      onClose={onClose}
+      wide
+      label={initial.id ? "Modifier l'automatisation" : "Nouvelle automatisation"}
+      description="Ce que le téléphone fait seul quand un SMS arrive."
+    >
+      <div className="space-y-5">
         <div className="grid gap-4 sm:grid-cols-2">
           <div>
             <label className="label" htmlFor="auto-name">
@@ -480,7 +483,7 @@ function AutomationEditor({
         <ErrorNote error={error} />
       </div>
 
-      <div className="mt-6 flex justify-end gap-2">
+      <ModalActions>
         <button className="btn-secondary" onClick={onClose}>
           Annuler
         </button>
@@ -488,7 +491,7 @@ function AutomationEditor({
           {busy ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Check className="size-4" aria-hidden />}
           Enregistrer
         </button>
-      </div>
+      </ModalActions>
     </Modal>
   );
 }

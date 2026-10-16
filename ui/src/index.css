@@ -16,42 +16,42 @@
 :root {
   --radius: 0.5rem;
 
-  --background: #f5f6fa;
-  --foreground: #15171c;
+  --background: #f6f6f8;
+  --foreground: #121318;
   --card: #ffffff;
-  --card-foreground: #15171c;
+  --card-foreground: #121318;
   --popover: #ffffff;
-  --popover-foreground: #15171c;
+  --popover-foreground: #121318;
 
-  --primary: #4f46e5;
+  --primary: #5b47e6;
   --primary-foreground: #ffffff;
-  --secondary: #eceef4;
-  --secondary-foreground: #15171c;
-  --muted: #eceef4;
-  --muted-foreground: #5c6475;
-  --accent: #e6e8f0;
-  --accent-foreground: #15171c;
-  --destructive: #c62828;
+  --secondary: #f3f3f6;
+  --secondary-foreground: #121318;
+  --muted: #f3f3f6;
+  --muted-foreground: #55586a;
+  --accent: #ededf2;
+  --accent-foreground: #121318;
+  --destructive: #c62f2f;
   --destructive-foreground: #ffffff;
-  --border: #dfe2ea;
-  --input: #d5d9e3;
-  --ring: #4f46e5;
+  --border: #e3e3ea;
+  --input: #cfcfda;
+  --ring: #5b47e6;
 
-  --success: #15803d;
+  --success: #0f7a4a;
   --success-foreground: #ffffff;
-  --warning: #b45309;
+  --warning: #9a5b00;
   --warning-foreground: #ffffff;
-  --info: #0369a1;
+  --info: #3f4fd0;
   --info-foreground: #ffffff;
 
-  --sidebar: #ffffff;
-  --sidebar-foreground: #2d333d;
-  --sidebar-primary: #4f46e5;
+  --sidebar: #fbfbfc;
+  --sidebar-foreground: #55586a;
+  --sidebar-primary: #5b47e6;
   --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #eef0fb;
-  --sidebar-accent-foreground: #3730a3;
-  --sidebar-border: #e3e6ee;
-  --sidebar-ring: #4f46e5;
+  --sidebar-accent: #f3f3f6;
+  --sidebar-accent-foreground: #121318;
+  --sidebar-border: #e3e3ea;
+  --sidebar-ring: #5b47e6;
 
   /*
    * Chart series, by outcome. Status hues, since the series ARE states; checked
@@ -64,56 +64,56 @@
   --chart-fail: #c62828;
   --chart-grid: #e7e9f0;
 
-  /* A short shadow and a diffuse one; otherwise every surface sits flat. */
-  --surface-shadow: 0 1px 2px rgb(16 24 40 / 0.05), 0 2px 6px -1px rgb(16 24 40 / 0.07);
+  /* Cards sit flat, their border is enough; only what floats casts a shadow. */
+  --surface-shadow: none;
+  --drawer-shadow: -16px 0 40px rgb(18 19 24 / 0.06);
 }
 
 .dark {
-  --background: #0e1116;
-  --foreground: #e6e8ee;
-  --card: #161a21;
-  --card-foreground: #e6e8ee;
-  --popover: #161a21;
-  --popover-foreground: #e6e8ee;
+  --background: #0a0b0f;
+  --foreground: #ecedf3;
+  --card: #111319;
+  --card-foreground: #ecedf3;
+  --popover: #14161d;
+  --popover-foreground: #ecedf3;
 
-  --primary: #818cf8;
-  --primary-foreground: #11122b;
-  --secondary: #1d222b;
-  --secondary-foreground: #e6e8ee;
-  --muted: #1d222b;
-  --muted-foreground: #8b93a3;
-  --accent: #222833;
-  --accent-foreground: #e6e8ee;
-  --destructive: #f87171;
+  --primary: #6a57f0;
+  --primary-foreground: #ffffff;
+  --secondary: #1c1f29;
+  --secondary-foreground: #ecedf3;
+  --muted: #1c1f29;
+  --muted-foreground: #a2a5b4;
+  --accent: #171a22;
+  --accent-foreground: #ecedf3;
+  --destructive: #ff7070;
   --destructive-foreground: #2a0909;
-  --border: #252b35;
-  --input: #2c333e;
-  --ring: #818cf8;
+  --border: #242733;
+  --input: #30344a;
+  --ring: #6a57f0;
 
-  --success: #34d399;
+  --success: #3fd48b;
   --success-foreground: #04231a;
-  --warning: #fbbf24;
+  --warning: #f4b740;
   --warning-foreground: #241a03;
-  --info: #38bdf8;
+  --info: #8d9bff;
   --info-foreground: #04192a;
 
-  --sidebar: #0b0d12;
-  --sidebar-foreground: #c5ccd8;
-  --sidebar-primary: #818cf8;
-  --sidebar-primary-foreground: #11122b;
-  --sidebar-accent: #1a1e27;
-  --sidebar-accent-foreground: #ffffff;
-  --sidebar-border: #1a1e27;
-  --sidebar-ring: #818cf8;
+  --sidebar: #0d0e13;
+  --sidebar-foreground: #a2a5b4;
+  --sidebar-primary: #6a57f0;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #171a22;
+  --sidebar-accent-foreground: #ecedf3;
+  --sidebar-border: #242733;
+  --sidebar-ring: #6a57f0;
 
   --chart-ok: #059669;
   --chart-flight: #6366f1;
   --chart-fail: #ef4444;
   --chart-grid: #232933;
 
-  /* A shadow barely reads on dark: a faint top highlight lifts the surface instead. */
-  --surface-shadow: inset 0 1px 0 rgb(255 255 255 / 0.04), 0 1px 2px rgb(0 0 0 / 0.4),
-    0 4px 12px -2px rgb(0 0 0 / 0.3);
+  --surface-shadow: none;
+  --drawer-shadow: -16px 0 40px rgb(0 0 0 / 0.35);
 }
 
 @theme {
@@ -130,6 +130,7 @@
 
 @theme inline {
   --shadow-surface: var(--surface-shadow);
+  --shadow-drawer: var(--drawer-shadow);
 
   --radius-sm: calc(var(--radius) - 2px);
   --radius-md: var(--radius);

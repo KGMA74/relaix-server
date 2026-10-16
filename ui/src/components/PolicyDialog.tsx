@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { api } from "../api/client";
 import type { AcceptRules, Availability, Country, Device, InboundRules, Policy, SendLimits, SimPolicy, TimeWindow, UsageCount } from "../api/types";
-import { ErrorNote, Modal } from "./common";
+import { ErrorNote, Modal, ModalActions } from "./common";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
@@ -123,16 +123,13 @@ export function PolicyDialog({ device, onClose }: { device: Device; onClose: () 
   });
 
   return (
-    <Modal onClose={onClose} wide label={`Règles de ${device.label}`}>
-      <div className="pr-8">
-        <h2 className="text-lg font-semibold">Règles d'envoi</h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          {device.label || "Ce téléphone"} ne reçoit que les messages que ces règles autorisent. Laissé vide, un champ ne restreint
-          rien.
-        </p>
-      </div>
-
-      <Tabs defaultValue="device" className="mt-4">
+    <Modal
+      onClose={onClose}
+      wide
+      label={`Règles d'envoi · ${device.label || "Ce téléphone"}`}
+      description="Le téléphone ne reçoit que les messages que ces règles autorisent. Laissé vide, un champ ne restreint rien."
+    >
+      <Tabs defaultValue="device">
         <TabsList className="w-full justify-start">
           <TabsTrigger value="device">Téléphone</TabsTrigger>
           {sims.map((s) => (
@@ -211,7 +208,7 @@ export function PolicyDialog({ device, onClose }: { device: Device; onClose: () 
       <div className="mt-6">
         <ErrorNote error={save.error} />
       </div>
-      <div className="mt-4 flex justify-end gap-2">
+      <ModalActions>
         <button className="btn-secondary" onClick={onClose}>
           Annuler
         </button>
@@ -219,7 +216,7 @@ export function PolicyDialog({ device, onClose }: { device: Device; onClose: () 
           {save.isPending ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Check className="size-4" aria-hidden />}
           Enregistrer
         </button>
-      </div>
+      </ModalActions>
     </Modal>
   );
 }

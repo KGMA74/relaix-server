@@ -4,7 +4,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
 import type { Device } from "../api/types";
-import { ConfirmDialog, Empty, ErrorNote, Modal, PageHeader, Pill, SignalBars, type Tone } from "../components/common";
+import { ConfirmDialog, Empty, ErrorNote, Modal, ModalActions, PageHeader, Pill, SignalBars, type Tone } from "../components/common";
 import { PolicyDialog } from "../components/PolicyDialog";
 import { formatDateTime, formatRelative, shortId } from "../lib/format";
 import { useLiveEvent, usePollInterval } from "@/lib/live";
@@ -299,8 +299,7 @@ function EnrollDialog({ onClose }: { onClose: () => void }) {
 
   return (
     <Modal onClose={close} label="Ajouter un téléphone">
-      <h2 className="text-lg font-semibold">Ajouter un téléphone</h2>
-      <ol className="mt-2 list-decimal space-y-1 pl-5 text-sm text-muted-foreground">
+      <ol className="list-decimal space-y-1 pl-5 text-sm text-muted-foreground">
         <li>Installez l'agent Relaix sur le téléphone Android.</li>
         <li>Ouvrez-le et scannez ce QR code.</li>
         <li>Le téléphone apparaît ici dès qu'il se connecte.</li>
@@ -330,7 +329,7 @@ function EnrollDialog({ onClose }: { onClose: () => void }) {
         {mint.data && !expired && <CopyPayload payload={mint.data.payload} />}
       </div>
 
-      <div className="mt-6 flex justify-end gap-2">
+      <ModalActions>
         <button className="btn-secondary" onClick={() => mint.mutate()} disabled={mint.isPending}>
           <RefreshCw className="size-4" aria-hidden />
           Nouveau code
@@ -338,7 +337,7 @@ function EnrollDialog({ onClose }: { onClose: () => void }) {
         <button className="btn-primary" onClick={close}>
           Terminé
         </button>
-      </div>
+      </ModalActions>
     </Modal>
   );
 }
