@@ -13,7 +13,19 @@ import { cn } from "@/lib/utils";
 export function DevicesPage() {
   const devices = useQuery({ queryKey: ["devices"], queryFn: api.listDevices, refetchInterval: usePollInterval(10_000) });
   const [enrolling, setEnrolling] = useState(false);
-  const list = devices.data?.devices ?? [];
+  const [filter, setFilter] = useState<Filter>("all");
+  const all = devices.data?.devices ?? [];
+  const online = all.filter((d) => d.connected);
+  const offline = all.filter((d) => !d.connected);
+  // Problems first: a phone off, then one on but not ready, then the rest.
+  const list = (filter === "online" ? online : filter === "offline" ? offline : all)
+    .slice()
+    .sort((a, b) => severity(b) - severity(a) || (a.label || a.deviceId).localeCompare(b.label || b.deviceId));
+  const filters: { id: Filter; label: string; n: number }[] = [
+    { id: "all", label: "Tous", n: all.length },
+    { id: "online", label: "En ligne", n: online.length },
+    { id: "offline", label: "Hors ligne", n: offline.length },
+  ];
 
   return (
     <>
@@ -30,11 +42,34 @@ export function DevicesPage() {
 
       <ErrorNote error={devices.error} />
 
-      {devices.isSuccess && list.length === 0 && (
+      {devices.isSuccess && all.length === 0 && !enrolling && <Onboarding />}
+
+      {all.length > 0 && (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div role="group" aria-label="Filtrer" className="inline-flex rounded-md border bg-card p-0.5">
+            {filters.map((f) => (
+              <button
+                key={f.id}
+                type="button"
+                aria-pressed={filter === f.id}
+                onClick={() => setFilter(f.id)}
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-sm px-3 py-1 text-sm font-medium transition-colors",
+                  filter === f.id ? "bg-accent text-foreground shadow-[inset_0_0_0_1px_var(--border)]" : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {f.label}
+                <span className="font-mono text-xs text-muted-foreground">{f.n}</span>
+              </button>
+            ))}
+          </div>
+          <span className="text-xs text-muted-foreground">Trié par : problème d'abord</span>
+        </div>
+      )}
+
+      {all.length > 0 && list.length === 0 && (
         <div className="card">
-          <Empty icon={<Smartphone />}>
-            Aucun téléphone enrôlé. Installez l'agent Relaix sur un Android, puis scannez le QR code d'enrôlement.
-          </Empty>
+          <Empty icon={<Smartphone />}>{filter === "online" ? "Aucun téléphone en ligne." : "Aucun téléphone hors ligne."}</Empty>
         </div>
       )}
 
@@ -42,11 +77,35 @@ export function DevicesPage() {
         {list.map((d) => (
           <DeviceCard key={d.deviceId} device={d} />
         ))}
+        {all.length === 1 && filter === "all" && (
+          <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed p-8 text-center">
+            <span className="inline-flex size-10 items-center justify-center rounded-full bg-primary-soft text-primary">
+              <Plus className="size-5" aria-hidden />
+            </span>
+            <span className="font-semibold">Ajoutez un second téléphone</span>
+            <span className="max-w-sm text-sm text-muted-foreground">
+              Avec deux appareils, la passerelle bascule seule quand l'un tombe ou atteint son plafond.
+            </span>
+            <button className="btn-secondary mt-1" onClick={() => setEnrolling(true)}>
+              Scanner un QR code
+            </button>
+          </div>
+        )}
       </div>
 
       {enrolling && <EnrollDialog onClose={() => setEnrolling(false)} />}
     </>
   );
+}
+
+type Filter = "all" | "online" | "offline";
+
+/** How much a phone needs looking at: off, then on but not ready, then fine; disabled last. */
+function severity(d: Device): number {
+  if (!d.enabled) return 0;
+  if (!d.connected) return 3;
+  if (!d.ready) return 2;
+  return 1;
 }
 
 function DeviceCard({ device: d }: { device: Device }) {
@@ -79,7 +138,16 @@ function DeviceCard({ device: d }: { device: Device }) {
   const usedHour = d.usage?.lastHour ?? 0;
 
   return (
-    <div className="card flex flex-col overflow-hidden">
+    <article className="card flex flex-col overflow-hidden" aria-label={`${d.label || "Sans nom"}, ${state.label.toLowerCase()}`}>
+      {d.enabled && !d.connected && (
+        <div className="flex items-center gap-2 border-b border-danger-line bg-danger-soft px-5 py-2 text-[13px]">
+          <span className="size-1.5 rounded-full bg-destructive" aria-hidden />
+          <span className="font-medium text-destructive">
+            Hors ligne{d.lastSeenAt ? ` depuis ${formatRelative(d.lastSeenAt).replace(/^il y a /, "")}` : ""}
+          </span>
+          <span className="text-muted-foreground">· l'envoi passe par les autres téléphones</span>
+        </div>
+      )}
       <div className="flex items-start gap-3 p-5 pb-4">
         <div
           className={cn(
@@ -242,7 +310,7 @@ function DeviceCard({ device: d }: { device: Device }) {
           onCancel={() => setConfirmDelete(false)}
         />
       )}
-    </div>
+    </article>
   );
 }
 
@@ -268,69 +336,81 @@ function Meter({ value, tone }: { value: number; tone: "success" | "warning" | "
   );
 }
 
-function EnrollDialog({ onClose }: { onClose: () => void }) {
+/**
+ * An enrollment code minted on mount — a fresh, single-use token each time,
+ * never a cached one — with its countdown. onEnrolled runs when a phone joins:
+ * the code is spent either way.
+ */
+function useEnrollment(onEnrolled: () => void) {
   const queryClient = useQueryClient();
   const mint = useMutation({ mutationFn: api.enrollToken });
   const [now, setNow] = useState(Date.now());
 
-  // Mint once on open; a fresh token per opening, never a cached one.
   const { mutate } = mint;
   useEffect(() => mutate(), [mutate]);
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
   }, []);
-
-  const close = () => {
-    // The phone may have joined while the dialog was open.
-    queryClient.invalidateQueries({ queryKey: ["devices"] });
-    onClose();
-  };
-
-  // The phone scanned the code: nothing left to do here. Any enrollment
-  // closes it — the token is single-use, so the one this dialog shows is
-  // spent either way.
   useLiveEvent((e) => {
-    if (e.type === "device.enrolled") close();
+    if (e.type === "device.enrolled") {
+      queryClient.invalidateQueries({ queryKey: ["devices"] });
+      onEnrolled();
+    }
   });
 
   const expiresIn = mint.data ? Math.max(0, Math.floor((new Date(mint.data.expiresAt).getTime() - now) / 1000)) : 0;
   const expired = mint.data !== undefined && expiresIn === 0;
+  return { mint, expiresIn, expired };
+}
+
+/** The QR code to scan, its countdown, and the payload for a phone without a camera. */
+function EnrollCode({ enrollment: { mint, expiresIn, expired } }: { enrollment: ReturnType<typeof useEnrollment> }) {
+  return (
+    <div className="flex flex-col items-center">
+      {mint.isPending && (
+        <div className="flex size-64 items-center justify-center rounded-lg border border-dashed text-sm text-muted-foreground">
+          <Loader2 className="mr-2 size-4 animate-spin" aria-hidden />
+          Génération…
+        </div>
+      )}
+      {mint.data && (
+        <img
+          src={`data:image/png;base64,${mint.data.qrCodePngBase64}`}
+          alt="QR code d'enrôlement"
+          // White behind the code in both themes: a scanner wants dark-on-light.
+          className={cn("size-64 rounded-lg border bg-white p-2", expired && "opacity-20")}
+        />
+      )}
+      <ErrorNote error={mint.error} />
+      {mint.data && (
+        <p className="mt-3 text-sm text-muted-foreground">
+          {expired ? "Ce code a expiré." : `Usage unique · expire dans ${Math.floor(expiresIn / 60)} min ${String(expiresIn % 60).padStart(2, "0")} s`}
+        </p>
+      )}
+      {mint.data && !expired && <CopyPayload payload={mint.data.payload} />}
+    </div>
+  );
+}
+
+function EnrollDialog({ onClose }: { onClose: () => void }) {
+  const queryClient = useQueryClient();
+  const close = () => {
+    // The phone may have joined while the drawer was open.
+    queryClient.invalidateQueries({ queryKey: ["devices"] });
+    onClose();
+  };
+  const enrollment = useEnrollment(close);
 
   return (
-    <Modal onClose={close} label="Ajouter un téléphone">
-      <ol className="list-decimal space-y-1 pl-5 text-sm text-muted-foreground">
-        <li>Installez l'agent Relaix sur le téléphone Android.</li>
-        <li>Ouvrez-le et scannez ce QR code.</li>
-        <li>Le téléphone apparaît ici dès qu'il se connecte.</li>
-      </ol>
-
-      <div className="mt-5 flex flex-col items-center">
-        {mint.isPending && (
-          <div className="flex size-64 items-center justify-center rounded-lg border border-dashed text-sm text-muted-foreground">
-            <Loader2 className="mr-2 size-4 animate-spin" aria-hidden />
-            Génération…
-          </div>
-        )}
-        {mint.data && (
-          <img
-            src={`data:image/png;base64,${mint.data.qrCodePngBase64}`}
-            alt="QR code d'enrôlement"
-            // White behind the code in both themes: a scanner wants dark-on-light.
-            className={cn("size-64 rounded-lg border bg-white p-2", expired && "opacity-20")}
-          />
-        )}
-        <ErrorNote error={mint.error} />
-        {mint.data && (
-          <p className="mt-3 text-sm text-muted-foreground">
-            {expired ? "Ce code a expiré." : `Usage unique · expire dans ${Math.floor(expiresIn / 60)} min ${String(expiresIn % 60).padStart(2, "0")} s`}
-          </p>
-        )}
-        {mint.data && !expired && <CopyPayload payload={mint.data.payload} />}
+    <Modal onClose={close} label="Ajouter un téléphone" description="Le téléphone apparaît ici dès qu'il se connecte.">
+      <EnrollSteps />
+      <div className="mt-6">
+        <EnrollCode enrollment={enrollment} />
       </div>
 
       <ModalActions>
-        <button className="btn-secondary" onClick={() => mint.mutate()} disabled={mint.isPending}>
+        <button className="btn-secondary" onClick={() => enrollment.mint.mutate()} disabled={enrollment.mint.isPending}>
           <RefreshCw className="size-4" aria-hidden />
           Nouveau code
         </button>
@@ -339,6 +419,67 @@ function EnrollDialog({ onClose }: { onClose: () => void }) {
         </button>
       </ModalActions>
     </Modal>
+  );
+}
+
+function EnrollSteps() {
+  const steps: [string, string][] = [
+    ["Installer l'application Relaix sur le téléphone", "Android 8 ou plus, avec une SIM locale."],
+    ["Dans l'app, scanner ce code", "Pas de caméra ? Copiez la configuration et collez-la dans l'app."],
+    ["Autoriser l'envoi de SMS et garder l'app active", "Désactivez l'optimisation de batterie pour Relaix."],
+  ];
+  return (
+    <ol className="flex flex-col gap-3.5">
+      {steps.map(([title, hint], i) => (
+        <li key={title} className="flex gap-3">
+          <span className="inline-flex size-7 shrink-0 items-center justify-center rounded-full border font-mono text-xs font-medium text-muted-foreground">
+            {i + 1}
+          </span>
+          <span className="flex flex-col">
+            <span className="text-sm font-medium">{title}</span>
+            <span className="text-xs text-muted-foreground">{hint}</span>
+          </span>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+/** No phone yet: the steps and the code on the page itself, waiting for the first. */
+function Onboarding() {
+  const enrollment = useEnrollment(() => {});
+  return (
+    <section aria-labelledby="ob-title" className="card flex flex-wrap items-center gap-8 p-8">
+      <div className="flex min-w-0 flex-[1_1_360px] flex-col gap-6">
+        <div className="flex flex-col gap-1.5">
+          <span className="text-section font-medium text-primary uppercase">Première connexion</span>
+          <h2 id="ob-title" className="text-xl font-semibold tracking-tight">
+            Connectez votre premier téléphone
+          </h2>
+          <p className="text-sm text-muted-foreground">
+            Un téléphone Android avec une SIM locale suffit. Il enverra les SMS de vos applications par sa propre ligne.
+          </p>
+        </div>
+        <EnrollSteps />
+        <div className="flex items-center gap-2.5 text-sm">
+          <span className="relative flex size-2.5">
+            <span className="absolute inline-flex size-full animate-ping rounded-full bg-primary opacity-60 motion-reduce:hidden" />
+            <span className="relative inline-flex size-2.5 rounded-full bg-primary" />
+          </span>
+          <span className="font-medium">En attente du téléphone…</span>
+          <span className="text-muted-foreground">il apparaîtra ici automatiquement</span>
+        </div>
+      </div>
+      <div className="flex flex-[0_1_300px] flex-col items-center gap-2">
+        <EnrollCode enrollment={enrollment} />
+        {enrollment.expired && (
+          <button className="btn-secondary mt-2" onClick={() => enrollment.mint.mutate()}>
+            <RefreshCw className="size-4" aria-hidden />
+            Nouveau code
+          </button>
+        )}
+      </div>
+    </section>
   );
 }
 

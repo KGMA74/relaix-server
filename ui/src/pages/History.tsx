@@ -2,6 +2,7 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tansta
 import { Inbox, Loader2, RefreshCw } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { useSearchParams } from "react-router-dom";
+import { cn } from "@/lib/utils";
 import { api, type JobQuery } from "../api/client";
 import { JOB_STATUSES, TERMINAL_STATUSES, type Job, type JobStatus } from "../api/types";
 import { ConfirmDialog, Empty, ErrorNote, Modal, ModalActions, PageHeader, STATUS_LABEL, StatusBadge } from "../components/common";
@@ -116,7 +117,16 @@ export function HistoryPage() {
             </thead>
             <tbody className="divide-y">
               {rows.map((j) => (
-                <tr key={j.jobId} onClick={() => setFilter("job", j.jobId)} className="cursor-pointer transition-colors hover:bg-row-hover">
+                <tr
+                  key={j.jobId}
+                  onClick={() => setFilter("job", j.jobId)}
+                  aria-selected={j.jobId === selectedId}
+                  // The row open in the drawer keeps an accent edge, so the eye finds it again.
+                  className={cn(
+                    "cursor-pointer transition-colors hover:bg-row-hover",
+                    j.jobId === selectedId && "bg-primary-soft shadow-[inset_2px_0_0_var(--primary)]",
+                  )}
+                >
                   <td className="td whitespace-nowrap text-muted-foreground">{formatDateTime(j.createdAt)}</td>
                   <td className="td whitespace-nowrap font-mono">{j.recipient}</td>
                   <td className="td max-w-xs truncate text-muted-foreground">{j.body}</td>

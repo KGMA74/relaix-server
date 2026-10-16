@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import {
+  AlertTriangle,
   ArrowDownRight,
   ArrowRight,
   ArrowUpRight,
@@ -10,6 +11,7 @@ import {
   MessageSquare,
   Smartphone,
   Timer,
+  XCircle,
   type LucideIcon,
 } from "lucide-react";
 import { useState } from "react";
@@ -85,6 +87,8 @@ export function OverviewPage() {
 
       <ErrorNote error={stats.error ?? activity.error} />
 
+      {s && devices.data && <HealthBanner devices={devices.data.devices} queued={s.jobs.pending + s.jobs.assigned} />}
+
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <Kpi
           icon={MessageSquare}
@@ -108,12 +112,14 @@ export function OverviewPage() {
           value={s ? `${s.devices.ready} / ${s.devices.total}` : undefined}
           hint={s ? `${s.devices.connected} connecté${s.devices.connected > 1 ? "s" : ""}` : undefined}
           meter={s && s.devices.total > 0 ? s.devices.ready / s.devices.total : undefined}
+          tag={s && s.devices.total > 0 && s.devices.ready === 0 ? { text: "Critique", tone: "danger" } : undefined}
         />
         <Kpi
           icon={Timer}
           label="En file"
           value={s ? String(s.jobs.pending + s.jobs.assigned) : undefined}
-          hint="en attente ou assignés"
+          hint={s && s.devices.ready === 0 && s.jobs.pending + s.jobs.assigned > 0 ? "en attente d'un appareil prêt" : "en attente ou assignés"}
+          tag={s && s.devices.ready === 0 && s.jobs.pending + s.jobs.assigned > 0 ? { text: "Bloqué", tone: "warning" } : undefined}
         />
       </div>
 
@@ -177,6 +183,71 @@ export function OverviewPage() {
   );
 }
 
+/**
+ * The fleet's health in one line, at three levels: nothing can send (no
+ * phone ready), something to look at while sending goes on (a phone off,
+ * a battery low), or all is well.
+ */
+function HealthBanner({ devices, queued }: { devices: Device[]; queued: number }) {
+  const enabled = devices.filter((d) => d.enabled);
+  const ready = enabled.filter((d) => d.ready);
+  const offline = enabled.filter((d) => !d.connected);
+  const lowBattery = enabled.filter((d) => d.connected && d.health && d.health.batteryLevel < 15 && !d.health.isCharging);
+  const plural = (n: number, word: string) => `${n} ${word}${n > 1 ? "s" : ""}`;
+  const waiting = queued > 0 ? `${plural(queued, "message")} en attente` : "file vide";
+
+  let level: "ok" | "warn" | "bad";
+  let title: string;
+  let detail: string;
+  if (enabled.length === 0) {
+    level = "bad";
+    title = "Aucun téléphone dans la flotte";
+    detail = "Ajoutez-en un pour envoyer : les messages attendent jusque-là.";
+  } else if (ready.length === 0) {
+    const last = [...enabled].filter((d) => d.lastSeenAt).sort((a, b) => (b.lastSeenAt ?? "").localeCompare(a.lastSeenAt ?? ""))[0];
+    level = "bad";
+    title = "Aucun appareil en ligne";
+    detail = waiting + (last ? ` · ${last.label || "un téléphone"} vu ${formatRelative(last.lastSeenAt)}` : "");
+  } else if (offline.length > 0) {
+    level = "warn";
+    title = `${plural(offline.length, "appareil")} hors ligne`;
+    detail = `${plural(ready.length, "appareil")} prêt${ready.length > 1 ? "s" : ""} — les envois continuent · ${waiting}`;
+  } else if (lowBattery.length > 0) {
+    level = "warn";
+    title = "Batterie faible";
+    detail = `${plural(lowBattery.length, "appareil")} sous 15 % — les envois continuent`;
+  } else {
+    level = "ok";
+    title = "Tout est opérationnel";
+    detail = `${plural(ready.length, "appareil")} en ligne · ${waiting}`;
+  }
+
+  const Icon = level === "ok" ? CheckCircle2 : level === "warn" ? AlertTriangle : XCircle;
+  return (
+    <div
+      role="status"
+      className={cn(
+        "mb-4 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-[10px] border px-4 py-3 text-sm",
+        level === "ok" && "border-success-line bg-success-soft",
+        level === "warn" && "border-warning-line bg-warning-soft",
+        level === "bad" && "border-danger-line bg-danger-soft",
+      )}
+    >
+      <Icon
+        className={cn("size-[18px] shrink-0", level === "ok" ? "text-success" : level === "warn" ? "text-warning" : "text-destructive")}
+        aria-hidden
+      />
+      <span className="font-semibold">{title}</span>
+      <span className="text-muted-foreground">{detail}</span>
+      {level !== "ok" && (
+        <Link to="/devices" className="ml-auto inline-flex items-center gap-1 font-medium text-foreground hover:underline">
+          Voir la flotte <ArrowRight className="size-3.5" aria-hidden />
+        </Link>
+      )}
+    </div>
+  );
+}
+
 function pctDelta(now: number, before: number): { value: number; unit: "%" } | null {
   if (before === 0) return null;
   return { value: ((now - before) / before) * 100, unit: "%" };
@@ -190,6 +261,7 @@ function Kpi({
   delta,
   deltaGood,
   meter,
+  tag,
 }: {
   icon: LucideIcon;
   label: string;
@@ -198,6 +270,8 @@ function Kpi({
   delta?: { value: number; unit: string } | null;
   deltaGood?: "up" | "down";
   meter?: number;
+  /** A word that says the figure needs attention: "Critique", "Bloqué". */
+  tag?: { text: string; tone: "danger" | "warning" };
 }) {
   const flat = delta && Math.abs(delta.value) < 0.5;
   const up = delta && delta.value > 0;
@@ -206,9 +280,13 @@ function Kpi({
     <div className="card p-4">
       <div className="flex items-center justify-between text-sm text-muted-foreground">
         {label}
-        <span className="flex size-7 items-center justify-center rounded-md bg-primary-soft text-primary">
-          <Icon className="size-4" aria-hidden />
-        </span>
+        {tag ? (
+          <span className={cn("text-xs font-semibold", tag.tone === "danger" ? "text-destructive" : "text-warning")}>{tag.text}</span>
+        ) : (
+          <span className="flex size-7 items-center justify-center rounded-md bg-primary-soft text-primary">
+            <Icon className="size-4" aria-hidden />
+          </span>
+        )}
       </div>
       <div className="mt-2 flex items-baseline gap-2">
         <span className="text-[1.75rem] leading-none font-semibold tracking-tight tabular-nums">{value ?? "—"}</span>
