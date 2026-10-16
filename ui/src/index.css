@@ -120,9 +120,9 @@
   --font-sans: "Geist Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --font-mono: "Geist Mono Variable", ui-monospace, "SFMono-Regular", "Cascadia Code", Consolas, monospace;
 
-  --text-title: 1.25rem;
-  --text-title--line-height: 1.75rem;
-  --text-title--letter-spacing: -0.015em;
+  --text-title: 1.75rem;
+  --text-title--line-height: 2rem;
+  --text-title--letter-spacing: -0.025em;
   --text-section: 0.6875rem;
   --text-section--line-height: 1rem;
   --text-section--letter-spacing: 0.07em;
