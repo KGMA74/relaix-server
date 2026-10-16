@@ -53,6 +53,15 @@ type Config struct {
 	// codes.
 	PublicURL string
 
+	// OAuthSecret seals the tokens /mcp hands to assistants that sign in by
+	// OAuth (claude.ai). Empty: derived from APIKey, so the tokens survive a
+	// restart without one more secret to manage.
+	OAuthSecret string
+
+	// OAuthRedirects are the only addresses an OAuth code may be sent to.
+	// Empty: claude.ai's.
+	OAuthRedirects []string
+
 	// EnrollTokenTTL is how long a minted enrollment token stays usable.
 	EnrollTokenTTL time.Duration
 
@@ -119,6 +128,7 @@ func Load(args []string) (Config, error) {
 	fs.StringVar(&cfg.InboundWebhookURL, "inbound-webhook-url", cfg.InboundWebhookURL, "URL received SMS are posted to")
 	fs.StringVar(&cfg.HardwareIDKey, "hardware-id-key", cfg.HardwareIDKey, "HMAC key for stored phone hardware ids; keep it stable")
 	fs.StringVar(&cfg.PublicURL, "public-url", cfg.PublicURL, "address agents should dial, encoded into enrollment QR codes")
+	fs.StringVar(&cfg.OAuthSecret, "oauth-secret", cfg.OAuthSecret, "key sealing the OAuth tokens of /mcp; defaults to one derived from the API key")
 	fs.DurationVar(&cfg.EnrollTokenTTL, "enroll-token-ttl", cfg.EnrollTokenTTL, "lifetime of a minted enrollment token")
 	fs.DurationVar(&cfg.HeartbeatInterval, "heartbeat-interval", cfg.HeartbeatInterval, "heartbeat cadence handed to agents")
 	fs.DurationVar(&cfg.HeartbeatTTL, "heartbeat-ttl", cfg.HeartbeatTTL, "how long a device stays ready unheard from")
@@ -156,7 +166,15 @@ func applyEnv(cfg *Config) error {
 	str("RELAIX_INBOUND_WEBHOOK_URL", &cfg.InboundWebhookURL)
 	str("RELAIX_HARDWARE_ID_KEY", &cfg.HardwareIDKey)
 	str("RELAIX_PUBLIC_URL", &cfg.PublicURL)
+	str("RELAIX_OAUTH_SECRET", &cfg.OAuthSecret)
 	str("RELAIX_LOG_LEVEL", &cfg.LogLevel)
+	if v := os.Getenv("RELAIX_OAUTH_REDIRECTS"); v != "" {
+		for _, u := range strings.Split(v, ",") {
+			if u = strings.TrimSpace(u); u != "" {
+				cfg.OAuthRedirects = append(cfg.OAuthRedirects, u)
+			}
+		}
+	}
 
 	// DATABASE_URL without the prefix is what nearly every hosting platform
 	// injects, so it is accepted as a fallback rather than making every
@@ -288,6 +306,7 @@ func (c *Config) Redacted() Config {
 	out.APIKey = redact(c.APIKey)
 	out.CallbackSecret = redact(c.CallbackSecret)
 	out.HardwareIDKey = redact(c.HardwareIDKey)
+	out.OAuthSecret = redact(c.OAuthSecret)
 	out.DatabaseURL = redactDSN(c.DatabaseURL)
 	return out
 }

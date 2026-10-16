@@ -9,7 +9,10 @@ export function IntegrationPage() {
 
   return (
     <>
-      <PageHeader title="Intégration" subtitle="Envoyer des SMS depuis vos applications avec l'API REST de la passerelle." />
+      <PageHeader
+        title="Intégration"
+        subtitle="SMS, codes USSD, SMS reçus et automatisations depuis vos applications — ou depuis un assistant IA."
+      />
 
       <div className="space-y-6">
         <Section title="Authentification">
@@ -74,17 +77,87 @@ curl -X DELETE ${base}/jobs/$JOB_ID -H "Authorization: Bearer $RELAIX_API_KEY"`}
   -H "Authorization: Bearer $RELAIX_API_KEY"`}</Code>
         </Section>
 
-        <Section title="Webhooks">
+        <Section title="Codes USSD — POST /ussd">
           <p>
-            Un <code>POST</code> JSON vers <code>callbackUrl</code> à chaque état final, réessayé avec un délai croissant tant que votre
-            serveur ne répond pas <code>2xx</code>. Vérifiez la signature avant de lui faire confiance : HMAC-SHA256 de{" "}
-            <code>timestamp + "." + corps brut</code> avec le secret <code>RELAIX_CALLBACK_SECRET</code>.
+            Lance un code sur un téléphone précis (<code>deviceId</code> obligatoire : la réponse concerne le compte de sa SIM). Le job se
+            suit comme un SMS ; une fois fini, <code>responses</code> contient chaque écran affiché par le réseau.
+          </p>
+          <Code>{`curl -X POST ${base}/ussd \\
+  -H "Authorization: Bearer $RELAIX_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "deviceId": "$DEVICE_ID",
+    "code": "*144#",
+    "replies": ["2", "1"]
+  }'`}</Code>
+          <Table
+            rows={[
+              ["deviceId", "Le téléphone qui compose (GET /devices). Il doit annoncer la capacité ussd."],
+              ["code", "Composé tel quel : *144#, *144*2*1*70000000*5000#…"],
+              ["replies", "Optionnel : saisis dans l'ordre dans les menus ouverts par le code (capacité ussd_menu)."],
+              ["subscriptionId", "Optionnel : la SIM qui compose ; par défaut celle du téléphone."],
+              ["sensitive", "true si le code ou une réponse porte un secret : jamais affiché, effacé une fois le job fini."],
+              ["mode, priority, scheduledAt, expiresAt, callbackUrl", "Comme pour /send."],
+            ]}
+          />
+          <p>
+            Le code PIN ne transite jamais : écrivez <code>{"{pin}"}</code> dans le code ou une réponse, le téléphone le remplace depuis
+            son coffre — seulement pour un modèle de code approuvé sur le téléphone, dans les plafonds fixés là-bas. Sinon le job échoue
+            avec <code>PIN_REFUSED</code>.
+          </p>
+        </Section>
+
+        <Section title="SMS reçus — GET /inbox">
+          <p>
+            Les SMS que les téléphones transmettent (règles « Reçus » de chaque appareil, ou une automatisation), du plus récent au plus
+            ancien. Filtres : <code>deviceId</code>, <code>sender</code> (exact, ex. <code>OrangeMoney</code>), <code>from</code> /{" "}
+            <code>to</code>, <code>limit</code>, <code>cursor</code>. Ils partent aussi vers le webhook des SMS reçus, signé comme les
+            autres.
+          </p>
+          <Code>{`curl "${base}/inbox?sender=OrangeMoney&limit=20" \\
+  -H "Authorization: Bearer $RELAIX_API_KEY"`}</Code>
+          <Code>{`{"type":"sms.received","messageId":"…","deviceId":"…","subscriptionId":2,
+ "sender":"OrangeMoney","body":"Vous avez recu 5 000 FCFA de 70123456…",
+ "receivedAt":"2026-10-16T09:12:00Z","attempt":1,
+ "automationId":"…","fields":{"amount":"5 000","from":"70123456"},"numbers":{"amount":5000}}`}</Code>
+          <p>
+            <code>automationId</code>, <code>fields</code> et <code>numbers</code> n'apparaissent que si une automatisation a transmis le
+            SMS : <code>numbers</code> reprend les champs qui se lisent comme des nombres (« 5 000 » → <code>5000</code>).
+          </p>
+        </Section>
+
+        <Section title="Automatisations">
+          <p>
+            Elles tournent sur le téléphone, même hors ligne : un SMS arrive, un motif en extrait des champs, des actions suivent —
+            transmettre, répondre par SMS, appeler un webhook, lancer un code USSD. Elles se règlent dans la page Automatisations, ou via{" "}
+            <code>PUT /devices/{"{id}"}/policy</code> (champ <code>automations</code>). Ce qu'elles ont fait :
+          </p>
+          <Code>{`curl "${base}/automations/runs?deviceId=$DEVICE_ID&limit=20" \\
+  -H "Authorization: Bearer $RELAIX_API_KEY"`}</Code>
+          <p>
+            Le webhook d'une automatisation est envoyé par le téléphone lui-même et signé avec <strong>son propre secret</strong>, généré
+            à la création (bouton copier dans l'éditeur) — pas avec celui de la passerelle. Un corps JSON reste du JSON :{" "}
+            <code>{`{"montant": {amount}, "de": "{from}"}`}</code> donne <code>{`{"montant": 5000, "de": "70123456"}`}</code>.
+          </p>
+        </Section>
+
+        <Section title="Webhooks et signature">
+          <p>
+            Trois sources, même format : le <code>callbackUrl</code> d'un job (à chaque état final, avec <code>responses</code> pour un
+            USSD), le webhook des SMS reçus, et les webhooks des automatisations. Chaque envoi est réessayé avec un délai croissant tant
+            que votre serveur ne répond pas <code>2xx</code>.
           </p>
           <Code>{`X-Relaix-Timestamp: 1767225600
 X-Relaix-Signature: sha256=<hex>
-X-Relaix-Delivery: <jobId>
+X-Relaix-Delivery: <jobId | messageId | id de livraison>
 
-{"jobId":"…","status":"sent","recipient":"+237670000000","partsSent":1,"attempt":1}`}</Code>
+{"jobId":"…","kind":"sms","status":"sent","recipient":"+237670000000","partsSent":1,"attempt":1}`}</Code>
+          <p>
+            <code>X-Relaix-Delivery</code> est <strong>le même à chaque nouvel essai</strong> : notez les ids traités et répondez{" "}
+            <code>2xx</code> sans rien refaire à un id déjà vu — un paiement n'est jamais compté deux fois. La signature est un
+            HMAC-SHA256 de <code>timestamp + "." + corps brut</code> : avec <code>RELAIX_CALLBACK_SECRET</code> (ou le secret du compte)
+            pour les jobs et les SMS reçus, avec le secret de l'automatisation pour ses webhooks.
+          </p>
           <Code>{`// Node.js
 import crypto from "node:crypto";
 
@@ -95,6 +168,30 @@ function verify(secret, timestamp, rawBody, header) {
   const got = Buffer.from(header ?? "");
   return got.length === expected.length && crypto.timingSafeEqual(got, expected);
 }`}</Code>
+        </Section>
+
+        <Section title="Assistants IA — MCP">
+          <p>
+            La passerelle est un serveur <a className="text-primary hover:underline" href="https://modelcontextprotocol.io">MCP</a> à{" "}
+            <code>{base}/mcp</code> : un assistant (Claude, ou tout client MCP) y trouve des outils pour lister les téléphones, envoyer des
+            SMS, lancer des codes USSD, lire les SMS reçus et écrire les automatisations — décrivez-lui en français ce que vous voulez. Il
+            n'a que les droits de la clé utilisée : créez-en une pour lui, la révoquer le déconnecte.
+          </p>
+          <p>
+            <strong>Claude Code</strong> (ou tout client qui envoie un en-tête) :
+          </p>
+          <Code>{`claude mcp add --transport http relaix ${base}/mcp \\
+  --header "Authorization: Bearer $RELAIX_API_KEY"`}</Code>
+          <p>
+            <strong>claude.ai</strong> : Paramètres → Connecteurs → Ajouter un connecteur personnalisé, adresse <code>{base}/mcp</code>,
+            sans identifiant client. Une page de la passerelle demande alors la clé API, une seule fois ; l'assistant reçoit des jetons
+            qui se renouvellent seuls pendant 30 jours tant que la clé est valide.
+          </p>
+          <p>
+            Garde-fous : les plafonds et règles des téléphones s'appliquent ; le PIN reste dans le coffre du téléphone, et un code avec{" "}
+            <code>{"{pin}"}</code> ne part qu'après approbation sur le téléphone ; le texte des SMS reçus est présenté à l'assistant comme
+            une donnée, jamais comme une consigne.
+          </p>
         </Section>
       </div>
     </>

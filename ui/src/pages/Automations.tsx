@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, FlaskConical, Loader2, Pencil, Plus, Trash2, Workflow, X } from "lucide-react";
-import { useMemo, useState } from "react";
+import { Check, Copy, FlaskConical, Loader2, Pencil, Plus, RefreshCw, Trash2, Workflow, X } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { api } from "../api/client";
@@ -253,7 +253,15 @@ function AutomationEditor({
   const blocking = problems.filter((p) => !p.includes("mise à jour nécessaire"));
 
   const setAction = (i: number, patch: Partial<AutomationAction>) =>
-    set({ actions: a.actions.map((x, j) => (j === i ? { ...x, ...patch } : x)) });
+    set({
+      actions: a.actions.map((x, j) => {
+        if (j !== i) return x;
+        const next = { ...x, ...patch };
+        // A webhook is signed from the start: its secret is made here, not typed.
+        if (next.type === "webhook" && !next.secret) next.secret = webhookSecret();
+        return next;
+      }),
+    });
   const setCondition = (i: number, patch: Partial<AutomationCondition>) =>
     set({ conditions: (a.conditions ?? []).map((x, j) => (j === i ? { ...x, ...patch } : x)) });
 
@@ -403,7 +411,7 @@ function AutomationEditor({
                     nombre — « 5 000 » devient 5000 —, ou <code>null</code> s'il est vide. Chaque envoi porte l'en-tête{" "}
                     <code>X-Relaix-Delivery</code>, le même à chaque nouvel essai : ignorez un id déjà traité.
                   </p>
-                  <input className="input" placeholder="Secret de signature (facultatif)" value={act.secret ?? ""} onChange={(e) => setAction(i, { secret: e.target.value })} />
+                  <SigningSecret secret={act.secret ?? ""} onRegenerate={() => setAction(i, { secret: webhookSecret() })} />
                 </>
               )}
               {act.type === "ussd" && (
@@ -578,6 +586,48 @@ function RunLog({ deviceId, names }: { deviceId: string; names: Record<string, s
           ))}
         </ul>
       )}
+    </div>
+  );
+}
+
+/** A new signing secret: 32 random bytes, base64url, behind a prefix that says what it is. */
+function webhookSecret(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  return "whsec_" + btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+/** The webhook's signing secret: generated, shown to be copied into the receiver, never typed. */
+function SigningSecret({ secret, onRegenerate }: { secret: string; onRegenerate: () => void }) {
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    if (!copied) return;
+    const t = setTimeout(() => setCopied(false), 1500);
+    return () => clearTimeout(t);
+  }, [copied]);
+
+  return (
+    <div className="space-y-1">
+      <span className="label">Secret de signature</span>
+      <div className="flex gap-2">
+        <input className="input font-mono text-xs" value={secret} readOnly onFocus={(e) => e.target.select()} aria-label="Secret de signature" />
+        <button
+          type="button"
+          className="btn-secondary"
+          // Unavailable off a secure origin (plain http to a LAN address): the field still selects for a manual copy.
+          onClick={() => navigator.clipboard?.writeText(secret).then(() => setCopied(true), () => {})}
+          aria-label="Copier le secret"
+          title="Copier"
+        >
+          {copied ? <Check className="size-4" aria-hidden /> : <Copy className="size-4" aria-hidden />}
+        </button>
+        <button type="button" className="btn-secondary" onClick={onRegenerate} aria-label="Générer un nouveau secret" title="Générer un nouveau secret">
+          <RefreshCw className="size-4" aria-hidden />
+        </button>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        À copier dans le récepteur pour vérifier <code>X-Relaix-Signature</code> (voir Intégration). Un nouveau secret ne compte
+        qu'une fois l'automatisation enregistrée.
+      </p>
     </div>
   );
 }

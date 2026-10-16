@@ -39,6 +39,7 @@ import (
 	v1 "github.com/KGMA74/relaix-server/gen/smsgateway/v1"
 	"github.com/KGMA74/relaix-server/grpcserver"
 	"github.com/KGMA74/relaix-server/hub"
+	"github.com/KGMA74/relaix-server/mcp"
 	"github.com/KGMA74/relaix-server/scheduler"
 	"github.com/KGMA74/relaix-server/store/postgres"
 	"github.com/KGMA74/relaix-server/token"
@@ -181,11 +182,15 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger, extend Ext
 	}
 	v1.RegisterDeviceGatewayServer(grpcSrv, deviceGateway)
 
+	authenticator := ext.Authenticator
+	if authenticator == nil {
+		authenticator = api.SharedKey(cfg.APIKey)
+	}
 	httpSrv := &http.Server{
 		Addr: cfg.HTTPAddr,
 		Handler: api.New(st, h, enrollment, api.Options{
 			APIKey:         cfg.APIKey,
-			Authenticator:  ext.Authenticator,
+			Authenticator:  authenticator,
 			Router:         ext.Router,
 			SendGuard:      ext.SendGuard,
 			Routes:         ext.Routes,
@@ -199,6 +204,33 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger, extend Ext
 		}).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
+
+	// The MCP endpoint and its OAuth sit in front of the API: they check
+	// credentials themselves, and every tool is a request to the API.
+	// Without a secret of their own, the tokens are sealed with a key derived
+	// from the API key, so assistants stay signed in across restarts.
+	oauthSecret := cfg.OAuthSecret
+	if oauthSecret == "" {
+		oauthSecret = cfg.APIKey
+	}
+	if oauthSecret == "" {
+		logger.Warn("no OAuth secret nor API key: assistants signed in by OAuth sign in again after a restart")
+	}
+	assistants, err := mcp.New(mcp.Options{
+		API:           httpSrv.Handler,
+		Authenticator: authenticator,
+		Secret:        []byte(oauthSecret),
+		Redirects:     cfg.OAuthRedirects,
+		Name:          ext.UIConfig.Name,
+		Logger:        logger,
+	})
+	if err != nil {
+		return err
+	}
+	root := http.NewServeMux()
+	assistants.Routes(root)
+	root.Handle("/", httpSrv.Handler)
+	httpSrv.Handler = root
 
 	// --- start -------------------------------------------------------------
 
