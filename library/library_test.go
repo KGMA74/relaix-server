@@ -120,3 +120,23 @@ func TestPaymentTemplates(t *testing.T) {
 		}
 	}
 }
+
+func TestPaymentLogo(t *testing.T) {
+	for logo, ok := range map[string]bool{
+		"":                                   true,
+		"https://cdn.example.com/orange.png": true,
+		"data:image/png;base64,iVBORw0KGgo=": true,
+		"data:image/svg+xml;base64,PHN2Zy8+": true,
+		"http://cdn.example.com/orange.png":  false,
+		"data:text/html;base64,PGgxPg==":     false,
+		"javascript:alert(1)":                false,
+	} {
+		tpl := omPayment()
+		p := *tpl.Payment
+		p.Logo = logo
+		tpl.Payment = &p
+		if err := tpl.Validate(); (err == nil) != ok {
+			t.Errorf("logo %q: Validate = %v", logo, err)
+		}
+	}
+}

@@ -283,6 +283,8 @@ export interface PaymentSpec {
   /** What the customer dials: {{params}} and {amount}. */
   dial: string;
   instructions?: string;
+  /** The operator's mark: an https URL or a data: URI. */
+  logo?: string;
   fields: { amount: string; transId: string; payer?: string };
 }
 

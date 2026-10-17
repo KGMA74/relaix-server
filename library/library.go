@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"regexp"
 	"slices"
 	"strconv"
@@ -51,6 +52,9 @@ type PaymentSpec struct {
 	Dial string `json:"dial"`
 	// Instructions are shown to the customer under the code.
 	Instructions string `json:"instructions,omitempty"`
+	// Logo is the operator's mark shown to customers: an https URL, or the
+	// image itself as a data: URI (PNG, JPEG, WebP or SVG, 100 KB at most).
+	Logo string `json:"logo,omitempty"`
 	// Fields maps the automation's fields: amount, transId, payer.
 	Fields PaymentFields `json:"fields"`
 }
@@ -85,6 +89,9 @@ func (p PaymentSpec) validate(a policy.Automation, example map[string]string) er
 	}
 	if !a.Forwards() {
 		return invalid("payment: the automation must forward the operator's SMS (a forward action)")
+	}
+	if err := validLogo(p.Logo); err != nil {
+		return err
 	}
 	fields := a.Fields()
 	for _, f := range []struct{ name, field string }{{"amount", p.Fields.Amount}, {"transId", p.Fields.TransID}, {"payer", p.Fields.Payer}} {
@@ -319,4 +326,32 @@ func Merge(lists ...[]Template) []Template {
 		}
 	}
 	return out
+}
+
+const maxLogoLen = 100 << 10
+
+// logoTypes are the images a logo may be, as a data: URI.
+var logoTypes = []string{"image/png", "image/jpeg", "image/webp", "image/svg+xml"}
+
+// validLogo accepts no logo, an https URL, or a base64 image data: URI of
+// one of logoTypes. Shown in an <img>, where an SVG's scripts do not run.
+func validLogo(logo string) error {
+	switch {
+	case logo == "":
+		return nil
+	case len(logo) > maxLogoLen:
+		return invalid("payment.logo: at most %d KB", maxLogoLen>>10)
+	case strings.HasPrefix(logo, "https://"):
+		if u, err := url.Parse(logo); err != nil || u.Host == "" {
+			return invalid("payment.logo: not a URL")
+		}
+		return nil
+	case strings.HasPrefix(logo, "data:"):
+		head, _, ok := strings.Cut(strings.TrimPrefix(logo, "data:"), ",")
+		mime, enc, _ := strings.Cut(head, ";")
+		if ok && enc == "base64" && slices.Contains(logoTypes, mime) {
+			return nil
+		}
+	}
+	return invalid("payment.logo: an https URL, or a data:image/png;base64,… image (png, jpeg, webp, svg)")
 }
