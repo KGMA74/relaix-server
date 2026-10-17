@@ -6,6 +6,7 @@ import { api } from "../api/client";
 import type { Device, Job, JobMode, SendRequest } from "../api/types";
 import { CardHeader, ErrorNote, PageHeader, StatusBadge } from "../components/common";
 import { CopyButton } from "../components/CopyButton";
+import { curlFor } from "../lib/curl";
 import { cn } from "@/lib/utils";
 import { localInputToISO, shortId } from "../lib/format";
 import { countSegments, isE164, parseRecipients } from "../lib/sms";
@@ -116,7 +117,7 @@ export function SendPage() {
     send.mutate(request());
   }
 
-  const curl = toCurl(request());
+  const curl = curlFor("/send", request());
 
   function reset() {
     setRecipients([]);
@@ -424,20 +425,6 @@ export function SendPage() {
   );
 }
 
-/**
- * The form as a curl command. The key is $RELAIX_API_KEY, never the one this
- * tab holds: the command gets pasted into tickets and chats.
- */
-function toCurl(req: SendRequest): string {
-  // Single quotes around the body: one inside it closes, escapes and reopens.
-  const json = JSON.stringify(req, null, 2).replace(/'/g, "'\\''");
-  return [
-    `curl -X POST ${window.location.origin}/send \\`,
-    `  -H "Authorization: Bearer $RELAIX_API_KEY" \\`,
-    `  -H "Content-Type: application/json" \\`,
-    `  -d '${json.replace(/\n/g, "\n  ")}'`,
-  ].join("\n");
-}
 
 function dedupe(list: string[]): string[] {
   return [...new Set(list)];

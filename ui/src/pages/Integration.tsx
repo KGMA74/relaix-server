@@ -1,8 +1,9 @@
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, Download } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { PageHeader } from "../components/common";
 import { CopyButton } from "../components/CopyButton";
+import { relaixSkill } from "../lib/skill";
 import { cn } from "@/lib/utils";
 
 /** The page's sections, in order: the table of contents is built from them. */
@@ -17,6 +18,7 @@ const SECTIONS = [
   { id: "webhooks", label: "Webhooks et signature" },
   { id: "errors", label: "Codes d'erreur" },
   { id: "mcp", label: "Assistants IA — MCP" },
+  { id: "skill", label: "Skill pour assistants" },
 ];
 
 export function IntegrationPage() {
@@ -364,6 +366,29 @@ function verify(secret, timestamp, rawBody, header) {
               une donnée, jamais comme une consigne.
             </p>
           </Section>
+          <Section id="skill" title="Skill pour assistants de code">
+            <p>
+              Pour qu'un assistant de code (Claude Code, ou tout agent qui lit les <em>skills</em>) intègre la passerelle dans votre
+              application sans relire cette page : ce fichier lui apprend l'API, les webhooks et leur signature, l'USSD et les
+              automatisations, avec l'adresse de cette passerelle. La clé reste une variable d'environnement.
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <button type="button" className="btn-secondary" onClick={() => download("SKILL.md", relaixSkill(base))}>
+                <Download className="size-4" aria-hidden />
+                Télécharger SKILL.md
+              </button>
+              <span className="text-xs text-muted-foreground">
+                À placer dans <code className="font-mono">.claude/skills/relaix/SKILL.md</code> du projet, ou dans{" "}
+                <code className="font-mono">~/.claude/skills/relaix/</code> pour tous.
+              </span>
+            </div>
+            <details className="group">
+              <summary className="cursor-pointer text-[13px] font-medium underline decoration-foreground/30 underline-offset-4">Voir le fichier</summary>
+              <div className="mt-2">
+                <Code>{relaixSkill(base)}</Code>
+              </div>
+            </details>
+          </Section>
         </div>
 
         {/* Narrow: a sticky row of tabs above the content. Wide: a sticky column beside it. */}
@@ -414,21 +439,27 @@ const ERRORS: [number, string, string][] = [
 function useActiveSection(): string {
   const [active, setActive] = useState(SECTIONS[0]!.id);
   useEffect(() => {
-    const seen = new Map<string, boolean>();
-    const observer = new IntersectionObserver(
-      (entries) => {
-        for (const e of entries) seen.set(e.target.id, e.isIntersecting);
-        const first = SECTIONS.find((s) => seen.get(s.id));
-        if (first) setActive(first.id);
-      },
-      // A section counts once its top passes the upper third.
-      { rootMargin: "0px 0px -66% 0px" },
-    );
-    for (const s of SECTIONS) {
-      const el = document.getElementById(s.id);
-      if (el) observer.observe(el);
-    }
-    return () => observer.disconnect();
+    // The last section whose top has passed the upper third of the view, or
+    // the last of all once the page is scrolled to its end: a short final
+    // section never reaches the upper third.
+    const update = (e?: Event) => {
+      const scroller = e?.target instanceof HTMLElement ? e.target : null;
+      if (scroller && scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 4) {
+        setActive(SECTIONS[SECTIONS.length - 1]!.id);
+        return;
+      }
+      const line = window.innerHeight / 3;
+      let current = SECTIONS[0]!.id;
+      for (const s of SECTIONS) {
+        const el = document.getElementById(s.id);
+        if (el && el.getBoundingClientRect().top <= line) current = s.id;
+      }
+      setActive(current);
+    };
+    update();
+    // Scroll events do not bubble; the page scrolls inside the layout, so listen while they descend.
+    document.addEventListener("scroll", update, { capture: true, passive: true });
+    return () => document.removeEventListener("scroll", update, { capture: true });
   }, []);
   return active;
 }
@@ -538,4 +569,14 @@ function Fields({ rows, head = ["Champ", "Description"] }: { rows: [string, stri
       </table>
     </div>
   );
+}
+
+/** Saves text as a file, from the browser. */
+function download(name: string, text: string) {
+  const url = URL.createObjectURL(new Blob([text], { type: "text/markdown" }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  a.click();
+  URL.revokeObjectURL(url);
 }

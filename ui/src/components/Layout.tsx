@@ -26,7 +26,7 @@ import {
 } from "@/components/ui/sidebar";
 import { Toaster } from "@/components/ui/sonner";
 import { useTheme } from "@/hooks/use-theme";
-import { useLive, useLiveEvent, type LiveStatus } from "@/lib/live";
+import { useLive, useLiveEvent } from "@/lib/live";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { CommandPalette } from "./CommandPalette";
@@ -163,37 +163,21 @@ function MobileTabs({ groups }: { groups: NavGroup[] }) {
   );
 }
 
-/** Whether the dashboard is receiving live events, in the top bar. */
+/**
+ * Said only when the live feed is cut: while it works, pages update by
+ * themselves and there is nothing to say. Cut, they fall back to refreshing
+ * every few seconds, and the operator should know changes may lag.
+ */
 function LiveIndicator() {
   const { status } = useLive();
-  const label: Record<LiveStatus, string> = {
-    live: "En direct",
-    connecting: "Connexion…",
-    offline: "Hors ligne",
-  };
-  const title: Record<LiveStatus, string> = {
-    live: "Les changements s'affichent dès qu'ils arrivent.",
-    connecting: "Ouverture du flux d'événements…",
-    offline: "Flux d'événements coupé : actualisation périodique en attendant de le rétablir.",
-  };
+  if (status !== "offline") return null;
   return (
     <span
-      title={title[status]}
-      className={cn(
-        "hidden h-7 items-center gap-2 px-1 font-mono text-[11px] font-medium tracking-wide uppercase sm:inline-flex",
-        status === "offline" && "text-muted-foreground",
-      )}
+      title="Flux d'événements coupé : actualisation périodique en attendant de le rétablir."
+      className="hidden h-7 items-center gap-2 px-1 font-mono text-[11px] font-medium tracking-wide text-warning uppercase sm:inline-flex"
     >
-      <span
-        aria-hidden
-        className={cn(
-          "size-[7px]",
-          status === "live" && "animate-pulse bg-success",
-          status === "connecting" && "bg-warning",
-          status === "offline" && "bg-muted-foreground",
-        )}
-      />
-      {label[status]}
+      <span aria-hidden className="size-[7px] bg-warning" />
+      Temps réel coupé
     </span>
   );
 }

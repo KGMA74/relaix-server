@@ -4,6 +4,8 @@ import { useState, type FormEvent } from "react";
 import { api } from "../api/client";
 import { TERMINAL_STATUSES, type Job, type JobMode, type JobStatus, type UssdRequest } from "../api/types";
 import { CardHeader, Empty, ErrorNote, PageHeader, Pill, STATUS_TONE } from "../components/common";
+import { CopyButton } from "../components/CopyButton";
+import { curlFor } from "../lib/curl";
 import { formatDateTime, shortId } from "../lib/format";
 import { usePollInterval } from "@/lib/live";
 import { cn } from "@/lib/utils";
@@ -61,13 +63,20 @@ export function UssdPage() {
     },
   });
 
-  function submit(e: FormEvent) {
-    e.preventDefault();
+  /** The request the form stands for: what is run, and what the curl shows. */
+  function request(): UssdRequest {
     const req: UssdRequest = { deviceId, code: code.trim(), mode, sensitive };
     if (subscriptionId) req.subscriptionId = Number(subscriptionId);
     if (menus && replies.length) req.replies = replies;
-    run.mutate(req);
+    return req;
   }
+
+  function submit(e: FormEvent) {
+    e.preventDefault();
+    run.mutate(request());
+  }
+
+  const curl = curlFor("/ussd", request());
 
   const canRun = deviceId !== "" && codeOk && !run.isPending && (!replies.length || menus);
 
@@ -212,9 +221,20 @@ export function UssdPage() {
           </div>
         </form>
 
-        <aside className="card h-fit overflow-hidden">
-          <CardHeader title="Réponse du réseau" />
-          {jobId ? <UssdResult jobId={jobId} /> : <Empty icon={<Hash />}>La réponse s'affichera ici.</Empty>}
+        {/* Beside the form, it stays in view while the form scrolls. */}
+        <aside className="flex h-fit flex-col gap-4 lg:sticky lg:top-0">
+          <section className="card overflow-hidden">
+            <CardHeader title="Réponse du réseau" />
+            {jobId ? <UssdResult jobId={jobId} /> : <Empty icon={<Hash />}>La réponse s'affichera ici.</Empty>}
+          </section>
+          <section className="card overflow-hidden" aria-label="Requête">
+            <CardHeader
+              title="Requête"
+              description="La même, depuis votre code : la clé reste une variable."
+              actions={<CopyButton text={curl} label="Copier la commande curl" />}
+            />
+            <pre className="max-h-56 overflow-auto bg-muted/40 px-4 py-3 font-mono text-xs leading-relaxed">{curl}</pre>
+          </section>
         </aside>
       </div>
 

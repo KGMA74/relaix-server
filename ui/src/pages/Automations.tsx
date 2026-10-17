@@ -7,6 +7,7 @@ import { api } from "../api/client";
 import type { Automation, AutomationAction, AutomationActionType, AutomationCondition, AutomationTemplate, Device, Policy } from "../api/types";
 import { instantiate, missing } from "../lib/library";
 import { CardHeader, ConfirmDialog, Empty, ErrorNote, Modal, ModalActions, PageHeader, Pill } from "../components/common";
+import { AutomationFlow } from "../components/AutomationFlow";
 import { CopyButton } from "../components/CopyButton";
 import { formatDateTime } from "../lib/format";
 import { Switch } from "@/components/ui/switch";
@@ -62,6 +63,7 @@ export function AutomationsPage() {
   const [editing, setEditing] = useState<Automation | null>(null);
   const [removing, setRemoving] = useState<Automation | null>(null);
   const [installing, setInstalling] = useState<AutomationTemplate | null>(null);
+  const [viewing, setViewing] = useState<Automation | null>(null);
 
   const save = useMutation({
     mutationFn: (next: Automation[]) => {
@@ -158,6 +160,9 @@ export function AutomationsPage() {
               actions={
                 <div className="flex items-center gap-2">
                   <Switch checked={!!a.enabled} onCheckedChange={(on) => toggle(a, on)} aria-label="Activer" />
+                  <button className="btn-secondary" onClick={() => setViewing(a)} aria-label="Voir en schéma" title="Voir en schéma">
+                    <Workflow className="size-4" aria-hidden />
+                  </button>
                   <button className="btn-secondary" onClick={() => setEditing(a)} aria-label="Modifier">
                     <Pencil className="size-4" aria-hidden />
                   </button>
@@ -201,6 +206,24 @@ export function AutomationsPage() {
           onSave={upsert}
           onClose={() => setEditing(null)}
         />
+      )}
+      {viewing && device && (
+        <Modal label={viewing.name} description={viewing.description || "Ce que fait le téléphone quand un SMS arrive."} onClose={() => setViewing(null)}>
+          <AutomationFlow automation={viewing} device={device} />
+          <ModalActions>
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() => {
+                setEditing(viewing);
+                setViewing(null);
+              }}
+            >
+              <Pencil className="size-4" aria-hidden />
+              Modifier
+            </button>
+          </ModalActions>
+        </Modal>
       )}
       {installing && device && (
         <InstallDrawer template={installing} busy={save.isPending} error={save.error} onInstall={install} onClose={() => setInstalling(null)} />
