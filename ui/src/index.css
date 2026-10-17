@@ -307,10 +307,53 @@
   .animate-page-enter {
     animation: page-enter 180ms cubic-bezier(0.16, 1, 0.3, 1) both;
   }
+  /* The sign-in backdrop: messages hopping between stations. */
+  @keyframes relay-hop {
+    from {
+      stroke-dashoffset: 410;
+    }
+    to {
+      stroke-dashoffset: 0;
+    }
+  }
+  .relay-hop {
+    stroke-dashoffset: 410;
+    animation: relay-hop linear infinite;
+  }
+  @keyframes relay-blink {
+    0%,
+    86%,
+    100% {
+      opacity: 0;
+    }
+    90% {
+      opacity: 0.8;
+    }
+  }
+  .relay-blink {
+    opacity: 0;
+    animation: relay-blink 6s ease-in-out infinite;
+  }
+  @keyframes form-enter {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  .animate-form-enter {
+    animation: form-enter 420ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .animate-page-enter {
+  .animate-page-enter,
+  .animate-form-enter,
+  .relay-hop,
+  .relay-blink {
     animation: none;
   }
 }

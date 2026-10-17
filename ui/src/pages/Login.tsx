@@ -1,3 +1,4 @@
+import { RelayBackdrop } from "../components/RelayBackdrop";
 import { KeyRound, Loader2 } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import { api, ApiError } from "../api/client";
@@ -28,7 +29,8 @@ export function LoginPage() {
 
   return (
     <div className="relative flex min-h-svh items-center justify-center overflow-hidden px-4">
-      <form onSubmit={submit} className="card relative w-full max-w-sm p-8">
+      <RelayBackdrop />
+      <form onSubmit={submit} className="card animate-form-enter relative w-full max-w-sm p-8 shadow-drawer">
         <div className="mb-6 flex items-center gap-3">
           <img src="/ui/favicon.svg" alt="" className="size-10" />
           <div>
