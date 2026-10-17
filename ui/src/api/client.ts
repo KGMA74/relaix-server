@@ -151,6 +151,7 @@ export const api = {
   listInbox: (q: InboxQuery) => request<InboxPage>("GET", "/inbox" + inboxQuery(q)),
   getInbound: (id: string) => request<InboundMessage>("GET", `/inbox/${id}`),
 
+  uiConfig: () => request<{ name: string; features?: string[] }>("GET", "/ui-config"),
   library: () => request<{ templates: AutomationTemplate[] }>("GET", "/automations/library"),
   listRuns: (deviceId?: string) =>
     request<{ runs: AutomationRun[] }>("GET", "/automations/runs" + (deviceId ? `?deviceId=${deviceId}` : "")),

@@ -2,13 +2,14 @@ import { ArrowRight, Download } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { PageHeader } from "../components/common";
-import { API_BASE } from "../api/client";
+import { useQuery } from "@tanstack/react-query";
+import { api, API_BASE } from "../api/client";
 import { CopyButton } from "../components/CopyButton";
 import { relaixSkill } from "../lib/skill";
 import { cn } from "@/lib/utils";
 
 /** The page's sections, in order: the table of contents is built from them. */
-const SECTIONS = [
+const SECTIONS: { id: string; label: string; feature?: string }[] = [
   { id: "auth", label: "Authentification" },
   { id: "send", label: "Envoyer un SMS" },
   { id: "track", label: "Suivre un message" },
@@ -16,6 +17,7 @@ const SECTIONS = [
   { id: "ussd", label: "Codes USSD" },
   { id: "inbox", label: "SMS reçus" },
   { id: "automations", label: "Automatisations" },
+  { id: "payments", label: "Paiements", feature: "payments" },
   { id: "webhooks", label: "Webhooks et signature" },
   { id: "errors", label: "Codes d'erreur" },
   { id: "mcp", label: "Assistants IA — MCP" },
@@ -28,6 +30,9 @@ export function IntegrationPage() {
   const origin = window.location.origin;
   const base = origin + API_BASE;
   const active = useActiveSection();
+  // Parts of the API only some gateways have: the hosted platform's payments.
+  const features = useQuery({ queryKey: ["ui-config"], queryFn: api.uiConfig, staleTime: Infinity }).data?.features ?? [];
+  const payments = features.includes("payments");
   // A link from another page (/integration#mcp): the router does not scroll to the anchor itself.
   useEffect(() => {
     const id = window.location.hash.slice(1);
@@ -258,6 +263,141 @@ curl -X DELETE ${base}/jobs/$JOB_ID -H "Authorization: Bearer $RELAIX_API_KEY"`}
             </p>
           </Section>
 
+          {payments && (
+            <Section id="payments" title="Paiements" method="POST" path="/cloud/payments">
+              <p>
+                Des liens de paiement mobile money, bâtis sur les automatisations. Un <strong>moyen de paiement</strong> est un plugin de la
+                bibliothèque (un modèle avec une section <code>payment</code>) activé sur le téléphone et la SIM qui reçoivent les SMS de
+                l'opérateur. Vous créez un paiement, vous envoyez le lien ; le client y saisit son numéro, compose le code affiché, et le
+                paiement est confirmé quand le SMS de l'opérateur arrive sur votre téléphone : même payeur, montant suffisant, reçu pendant la
+                validité du lien. Il faut les permissions <code>payments:write</code> (créer) et <code>payments:read</code> (lire).
+              </p>
+              <Snippets
+                snippets={{
+                  curl: `curl -X POST ${base}/cloud/payments \\
+  -H "Authorization: Bearer $RELAIX_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "amount": 5000,
+    "reference": "CMD-1042",
+    "description": "2 sacs de riz 25 kg",
+    "metadata": { "orderId": 1042 },
+    "callbackUrl": "https://exemple.com/hooks/paiements",
+    "expiresInMinutes": 60
+  }'`,
+                  JavaScript: `const res = await fetch("${base}/cloud/payments", {
+  method: "POST",
+  headers: {
+    Authorization: \`Bearer \${process.env.RELAIX_API_KEY}\`,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    amount: 5000,
+    reference: "CMD-1042",
+    metadata: { orderId: 1042 },
+    callbackUrl: "https://exemple.com/hooks/paiements",
+  }),
+});
+const payment = await res.json();
+// Envoyez payment.url au client.`,
+                  Python: `import os, requests
+
+r = requests.post(
+    "${base}/cloud/payments",
+    headers={"Authorization": f"Bearer {os.environ['RELAIX_API_KEY']}"},
+    json={
+        "amount": 5000,
+        "reference": "CMD-1042",
+        "metadata": {"orderId": 1042},
+        "callbackUrl": "https://exemple.com/hooks/paiements",
+    },
+)
+payment = r.json()  # payment["url"] : le lien à envoyer au client`,
+                }}
+              />
+              <Fields
+                rows={[
+                  ["amount", "int", "Montant en unités entières de la devise (FCFA).", true],
+                  ["currency", "string", "Par défaut celle des moyens de paiement (XOF)."],
+                  ["reference", "string", "Votre référence de commande, rendue dans le webhook."],
+                  ["description", "string", "Affichée au client."],
+                  ["metadata", "object", "Rendu tel quel dans le webhook (4 Kio au plus)."],
+                  ["callbackUrl", "URL", "Reçoit payment.succeeded, payment.failed, payment.expired."],
+                  ["methods", "uuid[]", "Moyens proposés (GET /cloud/payment-methods) ; par défaut tous ceux activés."],
+                  ["expiresInMinutes", "int", "Validité du lien ; 0 : 24 heures, au plus 30 jours."],
+                ]}
+              />
+              <p>
+                La réponse (<code>201</code>) porte l'<code>id</code>, le <code>status</code> et l'<code>url</code> à envoyer au client —
+                une page qui affiche le montant et, pour chaque moyen, le code à composer avec votre numéro et le montant déjà remplis.{" "}
+                <code>GET /cloud/payments/{"{id}"}</code> le suit, <code>GET /cloud/payments?status=paid</code> liste, et{" "}
+                <code>POST /cloud/payments/{"{id}"}/cancel</code> annule un paiement en attente.
+              </p>
+              <Fields
+                head={["Statut", "Quand"]}
+                rows={[
+                  ["pending", "", "Créé, en attente du paiement."],
+                  ["paid", "", "Le SMS de l'opérateur a confirmé : même payeur (ou même ID de transaction), montant suffisant, reçu à temps."],
+                  ["failed", "", "Un SMS correspondant est arrivé, mais ne convient pas : failureReason vaut amount_too_low, sms_before_payment ou sms_after_expiry."],
+                  ["expired", "", "Personne n'a payé avant l'expiration (avec 15 min de marge si le client a déjà donné son numéro)."],
+                  ["cancelled", "", "Annulé par vous."],
+                ]}
+              />
+              <Code>{`{
+  "event": "payment.succeeded",
+  "data": {
+    "id": "…",
+    "reference": "CMD-1042",
+    "amount": 5000,
+    "paidAmount": 5000,
+    "currency": "XOF",
+    "status": "paid",
+    "transId": "PP261009.1142.51783430",
+    "payer": "65530101",
+    "metadata": { "orderId": 1042 },
+    "paidAt": "2026-10-18T09:12:00Z",
+    "attempt": 1
+  }
+}`}</Code>
+              <p>
+                Signé comme les autres webhooks (<code>X-Relaix-Signature</code>, voir plus bas), <code>X-Relaix-Delivery</code> = l'id du
+                paiement : livrez la commande une seule fois par id. Réessayé jusqu'à une réponse <code>2xx</code>.
+              </p>
+              <h3 className="mt-2 text-base font-semibold text-foreground">Écrire un plugin de paiement</h3>
+              <p>
+                Un plugin est un modèle de la bibliothèque : une automatisation qui transmet le SMS de l'opérateur (action{" "}
+                <code>forward</code>) avec un motif qui en extrait le montant, le payeur et l'ID de transaction, plus une section{" "}
+                <code>payment</code> qui dit ce que compose le client. L'administrateur de la plateforme le publie depuis la page
+                Bibliothèque ou avec l'outil MCP <code>admin_save_template</code> ; chaque compte l'active ensuite dans Paiements → Moyens de
+                paiement (ou <code>enable_payment_method</code>).
+              </p>
+              <Code>{`{
+  "name": "Paiement Orange Money BF",
+  "category": "Paiement",
+  "params": [{ "key": "numero", "label": "Numéro Orange qui encaisse", "required": true }],
+  "automation": {
+    "name": "Paiements Orange Money BF",
+    "senders": ["OrangeMoney"],
+    "pattern": "(?s)recu\\\\s+(?P<amount>[0-9]+(?:\\\\.[0-9]+)?)\\\\s*FCFA.*?\\\\sdu\\\\s+(?P<payernumber>[0-9]+),…Trans\\\\s+ID:\\\\s*(?P<ref>[A-Za-z0-9.]+)",
+    "actions": [{ "type": "forward" }]
+  },
+  "payment": {
+    "operator": "Orange Money",
+    "country": "BF",
+    "currency": "XOF",
+    "dial": "*144*2*1*{{numero}}*{amount}#",
+    "fields": { "amount": "amount", "transId": "ref", "payer": "payernumber" }
+  }
+}`}</Code>
+              <p>
+                Dans <code>dial</code>, <code>{"{{clé}}"}</code> est une valeur du plugin (le numéro ou le code marchand) et{" "}
+                <code>{"{amount}"}</code> le montant. <code>fields</code> nomme les groupes du motif ; sans <code>payer</code>, la page
+                demande l'ID de transaction au lieu du numéro. Testez le motif sur un vrai SMS avec <code>test_automation</code> avant de
+                publier.
+              </p>
+            </Section>
+          )}
+
           <Section id="webhooks" title="Webhooks et signature">
             <p>
               Trois sources, même format : le <code>callbackUrl</code> d'un job (à chaque état final, avec <code>responses</code> pour un
@@ -399,7 +539,7 @@ function verify(secret, timestamp, rawBody, header) {
           className="sticky top-0 z-10 order-first -mx-4 -mt-2 flex gap-1 self-start overflow-x-auto border-b bg-background px-4 py-2 md:-mx-8 md:px-8 lg:top-6 lg:order-last lg:mx-0 lg:mt-0 lg:flex-col lg:overflow-visible lg:border-0 lg:bg-transparent lg:p-0 lg:pt-1.5"
         >
           <span className="eyebrow hidden pb-1.5 pl-3 lg:block">Sur cette page</span>
-          {SECTIONS.map((s) => (
+          {SECTIONS.filter((s) => !s.feature || features.includes(s.feature)).map((s) => (
             <a
               key={s.id}
               href={`#${s.id}`}
