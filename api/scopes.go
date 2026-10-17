@@ -25,10 +25,15 @@ const (
 	// ScopeDevicesWrite changes the phones: rules, automations, labels,
 	// enrolling one, removing one.
 	ScopeDevicesWrite = "devices:write"
+	// ScopePaymentsRead and ScopePaymentsWrite read and create payments, on
+	// a gateway that has them (the hosted platform). The routes check them.
+	ScopePaymentsRead  = "payments:read"
+	ScopePaymentsWrite = "payments:write"
 )
 
 // AllScopes lists every permission, in the order a form shows them.
-var AllScopes = []string{ScopeSMSSend, ScopeUSSDRun, ScopeMessagesRead, ScopeInboxRead, ScopeDevicesRead, ScopeDevicesWrite}
+var AllScopes = []string{ScopeSMSSend, ScopeUSSDRun, ScopeMessagesRead, ScopeInboxRead, ScopeDevicesRead, ScopeDevicesWrite,
+	ScopePaymentsRead, ScopePaymentsWrite}
 
 // ValidScope reports whether s names a permission.
 func ValidScope(s string) bool { return slices.Contains(AllScopes, s) }

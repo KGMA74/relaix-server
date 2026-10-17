@@ -53,6 +53,12 @@ type Options struct {
 	// resolved as each message is recorded. Nil, or an empty URL: none.
 	InboundWebhook func(ctx context.Context, account uuid.UUID) (string, error)
 
+	// OnInbound, when set, is told of each received SMS once it is first
+	// recorded — after the store, before the phone is acknowledged. An
+	// embedding program reacts to it (the cloud matches payments); it must
+	// not block for long.
+	OnInbound func(ctx context.Context, m *store.InboundMessage)
+
 	Now    func() time.Time
 	Logger *slog.Logger
 }

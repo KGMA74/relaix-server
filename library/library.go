@@ -11,6 +11,8 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/KGMA74/relaix-server/policy"
@@ -31,6 +33,69 @@ type Template struct {
 	Automation policy.Automation `json:"automation"`
 	// Builtin is set on the gateway's own templates, which nobody edits.
 	Builtin bool `json:"builtin,omitempty"`
+	// Payment makes the template a payment method: what a customer dials to
+	// pay, and which of the automation's fields say what was paid.
+	Payment *PaymentSpec `json:"payment,omitempty"`
+}
+
+// PaymentSpec turns a template into a way to be paid. The automation it
+// installs forwards the operator's SMS announcing a payment; the fields named
+// here say the amount, the operator's transaction id and who paid.
+type PaymentSpec struct {
+	// Operator and Country name it to the customer: "Orange Money", "BF".
+	Operator string `json:"operator"`
+	Country  string `json:"country,omitempty"`
+	Currency string `json:"currency"`
+	// Dial is what the customer dials, with the template's {{params}} (the
+	// merchant code) and {amount}: "*144*10*{{merchant}}*{amount}#".
+	Dial string `json:"dial"`
+	// Instructions are shown to the customer under the code.
+	Instructions string `json:"instructions,omitempty"`
+	// Fields maps the automation's fields: amount, transId, payer.
+	Fields PaymentFields `json:"fields"`
+}
+
+// PaymentFields names the automation's fields that carry a payment.
+type PaymentFields struct {
+	Amount  string `json:"amount"`
+	TransID string `json:"transId"`
+	Payer   string `json:"payer,omitempty"`
+}
+
+var ussdCode = regexp.MustCompile(`^[*#][0-9*#]+#$`)
+
+// DialFor is the code a customer dials for amount, the template's values
+// filled in.
+func (p PaymentSpec) DialFor(values map[string]string, amount int64) string {
+	code := placeholderRe.ReplaceAllStringFunc(p.Dial, func(m string) string {
+		return strings.TrimSpace(values[placeholderRe.FindStringSubmatch(m)[1]])
+	})
+	return strings.ReplaceAll(code, "{amount}", strconv.FormatInt(amount, 10))
+}
+
+func (p PaymentSpec) validate(a policy.Automation, example map[string]string) error {
+	if strings.TrimSpace(p.Operator) == "" || len(p.Currency) != 3 {
+		return invalid("payment: an operator and a three-letter currency (XOF)")
+	}
+	if !strings.Contains(p.Dial, "{amount}") {
+		return invalid("payment.dial: the code the customer dials, with {amount}, e.g. *144*10*{{merchant}}*{amount}#")
+	}
+	if code := p.DialFor(example, 1000); !ussdCode.MatchString(code) {
+		return invalid("payment.dial: %q is not a USSD code once filled in", code)
+	}
+	if !a.Forwards() {
+		return invalid("payment: the automation must forward the operator's SMS (a forward action)")
+	}
+	fields := a.Fields()
+	for _, f := range []struct{ name, field string }{{"amount", p.Fields.Amount}, {"transId", p.Fields.TransID}, {"payer", p.Fields.Payer}} {
+		if f.field == "" && f.name == "payer" {
+			continue
+		}
+		if !slices.Contains(fields, f.field) {
+			return invalid("payment.fields.%s: %q is not a field of the automation's pattern", f.name, f.field)
+		}
+	}
+	return nil
 }
 
 // Param is a value asked for at install time.
@@ -122,6 +187,16 @@ func (t Template) Validate() error {
 		}
 		used[k] = true
 	}
+	// The customer's code may use a param the automation does not: the
+	// merchant code, say.
+	if t.Payment != nil {
+		for _, k := range placeholderRe.FindAllStringSubmatch(t.Payment.Dial, -1) {
+			if !declared[k[1]] {
+				return invalid("payment.dial: {{%s}} is used but not declared in params", k[1])
+			}
+			used[k[1]] = true
+		}
+	}
 	for _, p := range t.Params {
 		if !used[p.Key] {
 			return invalid("param %q is never used as {{%s}}", p.Key, p.Key)
@@ -133,6 +208,9 @@ func (t Template) Validate() error {
 	}
 	if err := policy.Validate(policy.Normalize(policy.Policy{Automations: []policy.Automation{a}})); err != nil {
 		return invalid("automation: %v", err)
+	}
+	if t.Payment != nil {
+		return t.Payment.validate(a, example)
 	}
 	return nil
 }

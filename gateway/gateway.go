@@ -42,6 +42,7 @@ import (
 	"github.com/KGMA74/relaix-server/library"
 	"github.com/KGMA74/relaix-server/mcp"
 	"github.com/KGMA74/relaix-server/scheduler"
+	"github.com/KGMA74/relaix-server/store"
 	"github.com/KGMA74/relaix-server/store/postgres"
 	"github.com/KGMA74/relaix-server/token"
 	"github.com/KGMA74/relaix-server/ui"
@@ -67,8 +68,10 @@ type Extensions struct {
 	// InboundWebhookFor gives each account its own URL for received SMS.
 	// Empty falls back to the configured one.
 	InboundWebhookFor func(ctx context.Context, account uuid.UUID) (string, error)
-	Routes            func(mux *http.ServeMux)
-	PublicPrefixes    []string
+	// OnInbound is told of each received SMS once recorded.
+	OnInbound      func(ctx context.Context, m *store.InboundMessage)
+	Routes         func(mux *http.ServeMux)
+	PublicPrefixes []string
 	// Library replaces the built-in catalogue of automation templates.
 	Library library.Source
 	// MCPTools are added to the MCP server's own tools.
@@ -178,6 +181,7 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger, extend Ext
 		HeartbeatInterval: cfg.HeartbeatInterval,
 		Events:            broker,
 		InboundWebhook:    inboundWebhook,
+		OnInbound:         ext.OnInbound,
 		Logger:            logger,
 	}).WithEnroller(enrollment)
 

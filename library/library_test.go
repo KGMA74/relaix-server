@@ -75,3 +75,48 @@ func find(t *testing.T, id string) Template {
 	t.Fatalf("no template %s", id)
 	return Template{}
 }
+
+func omPayment() Template {
+	return Template{
+		Name: "Orange Money — paiement marchand", Description: "Encaisse les paiements marchands Orange Money.", Category: "Paiement",
+		Params: []Param{{Key: "merchant", Label: "Code marchand", Example: "123456", Required: true}},
+		Automation: policy.Automation{
+			Name: "Paiements Orange Money", Senders: []string{"OrangeMoney"},
+			Pattern: `recu (?P<amount>[0-9 ]+) FCFA de (?P<payer>[0-9]+).*Trans ID: (?P<transid>[A-Z0-9.]+)`,
+			Actions: []policy.Action{{Type: policy.ActionForward}},
+		},
+		Payment: &PaymentSpec{
+			Operator: "Orange Money", Country: "BF", Currency: "XOF",
+			Dial:   "*144*10*{{merchant}}*{amount}#",
+			Fields: PaymentFields{Amount: "amount", TransID: "transid", Payer: "payer"},
+		},
+	}
+}
+
+func TestPaymentTemplates(t *testing.T) {
+	tpl := omPayment()
+	if err := tpl.Validate(); err != nil {
+		t.Fatalf("valid payment template refused: %v", err)
+	}
+	if got := tpl.Payment.DialFor(map[string]string{"merchant": " 777 "}, 5000); got != "*144*10*777*5000#" {
+		t.Errorf("DialFor = %q", got)
+	}
+
+	for name, change := range map[string]func(*Template){
+		"no amount in the code":    func(t *Template) { t.Payment.Dial = "*144*10*{{merchant}}#" },
+		"undeclared param in code": func(t *Template) { t.Payment.Dial = "*144*10*{{shop}}*{amount}#" },
+		"unknown field":            func(t *Template) { t.Payment.Fields.TransID = "ref" },
+		"does not forward": func(t *Template) {
+			t.Automation.Actions = []policy.Action{{Type: policy.ActionWebhook, URL: "https://x.test/h"}}
+		},
+		"no currency": func(t *Template) { t.Payment.Currency = "" },
+	} {
+		tpl := omPayment()
+		p := *tpl.Payment
+		tpl.Payment = &p
+		change(&tpl)
+		if err := tpl.Validate(); !errors.Is(err, ErrInvalid) {
+			t.Errorf("%s: Validate = %v", name, err)
+		}
+	}
+}

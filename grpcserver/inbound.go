@@ -117,6 +117,9 @@ func (s *Server) onSmsReceived(ctx context.Context, device *store.Device, m *v1.
 	}
 	if created {
 		log.Info("SMS received", "message_id", stored.ID)
+		if s.opts.OnInbound != nil {
+			s.opts.OnInbound(ctx, stored)
+		}
 		s.opts.Events.Publish(events.Event{
 			Type: events.SmsReceived, DeviceID: device.ID.String(), MessageID: stored.ID.String(), AccountID: stored.AccountID,
 		})
