@@ -272,6 +272,18 @@ export interface AutomationTemplate {
   /** Its texts carry {{key}} where a param goes. */
   automation: Automation;
   builtin?: boolean;
+  /** Set: a way to be paid (the hosted platform's payments). */
+  payment?: PaymentSpec;
+}
+
+export interface PaymentSpec {
+  operator: string;
+  country?: string;
+  currency: string;
+  /** What the customer dials: {{params}} and {amount}. */
+  dial: string;
+  instructions?: string;
+  fields: { amount: string; transId: string; payer?: string };
 }
 
 export interface TemplateParam {
