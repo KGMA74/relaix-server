@@ -39,7 +39,9 @@ jobs:
           --health-cmd "pg_isready -U postgres"
           --health-interval 2s --health-timeout 5s --health-retries 30
     env:
-      DATABASE_URL: postgres://postgres:relaix@127.0.0.1:5432/relaix?sslmode=disable
+      # Not DATABASE_URL: gatewayd reads that one, and a config test checks it
+      # refuses to start without a database.
+      TEST_DSN: postgres://postgres:relaix@127.0.0.1:5432/relaix?sslmode=disable
     steps:
       - uses: actions/checkout@v4
 
@@ -65,11 +67,11 @@ jobs:
       # The store's conformance suite runs against the schema the migrations
       # build, applied with the goose the module already depends on.
       - name: Migrate
-        run: go run github.com/pressly/goose/v3/cmd/goose@v3.27.3 -dir db/migrations postgres "$DATABASE_URL" up
+        run: go run github.com/pressly/goose/v3/cmd/goose@v3.27.3 -dir db/migrations postgres "$TEST_DSN" up
 
       - name: Test (with Postgres, under the race detector)
         env:
-          RELAIX_TEST_DATABASE_URL: ${{ env.DATABASE_URL }}
+          RELAIX_TEST_DATABASE_URL: ${{ env.TEST_DSN }}
         run: go test -race -count=1 ./...
 
   image:
