@@ -103,7 +103,32 @@ export function HistoryPage() {
       <ErrorNote error={jobs.error} />
 
       <div className="card overflow-hidden">
-        <div className="overflow-x-auto">
+        {/* A phone gets a list: number and status on a line, the message under it. */}
+        <ul className="divide-y md:hidden">
+          {rows.map((j) => (
+            <li key={j.jobId}>
+              <button
+                type="button"
+                onClick={() => setFilter("job", j.jobId)}
+                aria-current={j.jobId === selectedId || undefined}
+                className={cn(
+                  "flex w-full flex-col gap-1 px-4 py-3 text-left transition-colors active:bg-row-hover",
+                  j.jobId === selectedId && "bg-primary-soft shadow-[inset_2px_0_0_var(--primary)]",
+                )}
+              >
+                <span className="flex items-center gap-2">
+                  <span className="min-w-0 flex-1 truncate font-mono text-sm">{j.recipient}</span>
+                  <StatusBadge status={j.status} />
+                </span>
+                <span className="line-clamp-2 text-sm text-muted-foreground">{j.body}</span>
+                <span className="font-mono text-[11px] text-muted-foreground">
+                  {formatDateTime(j.createdAt)} · {deviceLabel(j.deviceId)}
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+        <div className="hidden overflow-x-auto md:block">
           <table className="w-full">
             <thead className="border-b bg-muted/50">
               <tr>

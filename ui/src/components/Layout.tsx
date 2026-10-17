@@ -1,4 +1,4 @@
-import { Code2, Hash, History, Inbox, LayoutDashboard, LogOut, Moon, Search, Send, Smartphone, Sun, Workflow, type LucideIcon } from "lucide-react";
+import { Code2, Hash, History, Inbox, LayoutDashboard, LogOut, Menu, Moon, Search, Send, Smartphone, Sun, Workflow, type LucideIcon } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
@@ -128,6 +128,38 @@ function Nav({ groups }: { groups: NavGroup[] }) {
         </SidebarGroup>
       ))}
     </>
+  );
+}
+
+/**
+ * On a phone, the four pages used most sit under the thumb; "Menu" opens the
+ * sidebar for the rest.
+ */
+function MobileTabs({ groups }: { groups: NavGroup[] }) {
+  const { pathname } = useLocation();
+  const { setOpenMobile } = useSidebar();
+  const all = groups.flatMap((g) => g.items);
+  const tabs = ["/", "/send", "/history", "/devices"].map((to) => all.find((i) => i.to === to)).filter((i): i is NavItem => !!i);
+  const short: Record<string, string> = { "/": "Vue", "/send": "Envoyer", "/history": "Historique", "/devices": "Appareils" };
+  const inTabs = tabs.some((t) => isActive(pathname, t));
+  const tab = (active: boolean) =>
+    cn(
+      "flex h-14 flex-col items-center justify-center gap-1 font-mono text-[10px] font-medium uppercase transition-colors",
+      active ? "text-foreground shadow-[inset_0_2px_0_var(--foreground)]" : "text-muted-foreground",
+    );
+  return (
+    <nav aria-label="Navigation" className="grid shrink-0 grid-cols-5 border-t bg-background pb-[env(safe-area-inset-bottom)] md:hidden">
+      {tabs.map((t) => (
+        <NavLink key={t.to} to={t.to} end={t.end} className={tab(isActive(pathname, t))}>
+          <t.icon className="size-[18px]" aria-hidden />
+          {short[t.to]}
+        </NavLink>
+      ))}
+      <button type="button" onClick={() => setOpenMobile(true)} className={tab(!inTabs)}>
+        <Menu className="size-[18px]" aria-hidden />
+        Menu
+      </button>
+    </nav>
   );
 }
 
@@ -299,6 +331,9 @@ export function Layout({ brand, extraGroups = [], footer, user }: LayoutProps = 
           </nav>
           <div className="ml-auto flex items-center gap-2">
             <LiveIndicator />
+            <Button variant="ghost" size="icon-sm" className="md:hidden" onClick={() => setSearching(true)} aria-label="Rechercher">
+              <Search aria-hidden />
+            </Button>
             <ThemeToggle theme={theme} toggle={toggleTheme} />
           </div>
         </header>
@@ -309,10 +344,12 @@ export function Layout({ brand, extraGroups = [], footer, user }: LayoutProps = 
             <Outlet />
           </div>
         </div>
+        <MobileTabs groups={allGroups} />
       </SidebarInset>
       <LiveToasts />
       <CommandPalette groups={allGroups} open={searching} onOpenChange={setSearching} />
-      <Toaster theme={theme} position="bottom-right" richColors closeButton />
+      {/* On a phone, above the tab bar. */}
+      <Toaster theme={theme} position="bottom-right" mobileOffset={{ bottom: 72 }} richColors closeButton />
     </SidebarProvider>
   );
 }

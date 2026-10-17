@@ -281,7 +281,25 @@ function UssdHistory({ onOpen, deviceLabel }: { onOpen: (id: string) => void; de
       {jobs.isSuccess && rows.length === 0 ? (
         <Empty icon={<Hash />}>Aucun code exécuté pour l'instant.</Empty>
       ) : (
-        <div className="overflow-x-auto">
+        <>
+        <ul className="divide-y md:hidden">
+          {rows.map((j) => (
+            <li key={j.jobId}>
+              <button type="button" onClick={() => onOpen(j.jobId)} className="flex w-full flex-col gap-1 px-4 py-3 text-left active:bg-row-hover">
+                <span className="flex items-center gap-2">
+                  <span className="min-w-0 flex-1 truncate font-mono text-sm">{j.sensitive ? <Lock className="size-3.5" aria-label="masqué" /> : j.body}</span>
+                  <UssdStatus status={j.status} />
+                </span>
+                <span className="line-clamp-2 text-sm text-muted-foreground">{j.responses?.at(-1) ?? j.errorMessage ?? "—"}</span>
+                <span className="font-mono text-[11px] text-muted-foreground">
+                  {formatDateTime(j.createdAt)}
+                  {j.deviceId ? ` · ${deviceLabel(j.deviceId)}` : ""}
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+        <div className="hidden overflow-x-auto md:block">
           <table className="w-full">
             <thead className="border-b bg-muted/50">
               <tr>
@@ -307,6 +325,7 @@ function UssdHistory({ onOpen, deviceLabel }: { onOpen: (id: string) => void; de
             </tbody>
           </table>
         </div>
+        </>
       )}
     </div>
   );

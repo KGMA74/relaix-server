@@ -77,7 +77,29 @@ export function InboxPage() {
       <ErrorNote error={inbox.error} />
 
       <div className="card overflow-hidden">
-        <div className="overflow-x-auto">
+        {/* A phone gets a list: the sender and the time, then the message. */}
+        <ul className="divide-y md:hidden">
+          {rows.map((m) => (
+            <li key={m.messageId} className="flex flex-col gap-1 px-4 py-3">
+              <span className="flex items-baseline gap-2">
+                <span className="min-w-0 flex-1 truncate text-sm font-medium">{m.sender}</span>
+                <span className="font-mono text-[11px] text-muted-foreground">{formatDateTime(m.receivedAt)}</span>
+              </span>
+              <span className="text-sm whitespace-pre-wrap">{m.body}</span>
+              {m.fields && (
+                <span className="flex flex-wrap gap-1">
+                  {Object.entries(m.fields).map(([k, v]) => (
+                    <span key={k} className="rounded-sm bg-muted px-1.5 py-0.5 font-mono text-xs">
+                      {k}: {v}
+                    </span>
+                  ))}
+                </span>
+              )}
+              <span className="font-mono text-[11px] text-muted-foreground">{deviceLabel(m.deviceId)}</span>
+            </li>
+          ))}
+        </ul>
+        <div className="hidden overflow-x-auto md:block">
           <table className="w-full">
             <thead className="border-b bg-muted/50">
               <tr>
