@@ -1,16 +1,14 @@
 # relaix-server
 
-The Go control plane for [Relaix](https://github.com/KGMA74/relaix) — a self-hosted SMS
-gateway whose sending nodes are ordinary Android phones.
+The Go control plane for [Relaix](https://github.com/KGMA74/relaix) — a self-hosted gateway
+that turns ordinary Android phones into SMS and USSD nodes: send SMS, run USSD codes, read
+the SMS the phones receive, and let automations on the phones act on them.
 
 ## Status
 
-**Early development — not yet functional.**
-
-`gatewayd` builds and runs, but serves nothing yet: nothing is wired into the entry point,
-so it starts, says so, and shuts down cleanly on a signal. The pieces themselves exist and
-are tested — hub, scheduler, the gRPC `Connect` stream, the store interfaces, the schema —
-they are simply not connected to `main` yet. That happens one component at a time.
+**Working end to end, single instance.** `gatewayd` serves the REST API (under `/api/v1`),
+the gRPC stream the phones hold open, the operator dashboard (`/ui`) and an MCP server for
+AI assistants (`/mcp`).
 
 ```sh
 make run
@@ -20,18 +18,23 @@ make run
 
 Phones sit behind carrier NAT and can never be reached inbound, so each one runs an agent
 that dials out and holds a gRPC bidirectional stream open. This server accepts those
-streams, tracks which devices are alive, and schedules SMS jobs onto them:
+streams, tracks which devices are alive, schedules jobs onto them and reports back.
 
-| Package | What it does | State |
-| --- | --- | --- |
-| `hub` | Registry of connected devices, owned by one goroutine (actor pattern). | done |
-| `scheduler` | Tick loop pairing pending jobs with ready devices: `immediate` vs `queued`, explicit or automatic selection, priority, `scheduledAt`. | done |
-| `grpcserver` | The `DeviceGateway` service. `Connect` (bidi stream) done; `Enroll` next. | partial |
-| `store` | Persistence interfaces. Postgres implementation still to come. | interfaces only |
-| `db` | Schema and migrations. | done |
-| `token` | Generation and hashing of device and enrollment tokens. | done |
-| `api` | REST: job submission and inspection, device listing, enrollment tokens. | not started |
-| `callback` | HMAC-signed status webhooks with exponential-backoff retry. | not started |
+| Package | What it does |
+| --- | --- |
+| `api` | REST under `/api/v1`: SMS and USSD jobs, history, received SMS, devices and their rules, stats, live events (SSE), fine-grained key permissions. |
+| `mcp` | Model Context Protocol server: the API as tools for an assistant, OAuth for claude.ai, tools an embedding program adds. |
+| `library` | Ready-made automation templates with `{{params}}`, installed like plugins. |
+| `policy` | Per-device and per-SIM rules (hours, countries, caps, forwarded SMS) and the automations run on the phone. |
+| `hub` | Registry of connected devices, owned by one goroutine (actor pattern). |
+| `scheduler` | Tick loop pairing pending jobs with ready devices: immediate or queued, chosen or automatic, priority, scheduled. |
+| `grpcserver` | The `DeviceGateway` service: enrollment and the `Connect` stream. |
+| `devices` | Enrollment tokens, one entry per handset, leaving the fleet. |
+| `callback` | Signed webhooks (`{"event", "data"}`, HMAC-SHA256) with retries. |
+| `events` | The live event broker behind `GET /events`. |
+| `store`, `db` | Persistence interfaces, their Postgres implementation, the schema. |
+| `gateway` | Wires it all; `Extensions` lets a program (the hosted cloud) add accounts, routes, a library and MCP tools. |
+| `ui` | The dashboard (React), built into the binary. |
 
 Design and rationale live in the monorepo:
 [architecture](https://github.com/KGMA74/relaix/blob/main/docs/architecture.md) ·
@@ -53,7 +56,7 @@ detector is not a meaningful claim.
 A throwaway Postgres for migrations:
 
 ```sh
-make db-up      # start postgres on :55432 and wait for it
+make db-up      # start postgres on :15432 and wait for it
 make migrate    # apply db/migrations
 make psql       # shell into it
 make db-down    # remove it
