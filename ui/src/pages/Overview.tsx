@@ -8,11 +8,8 @@ import {
   BatteryMedium,
   CheckCircle2,
   Inbox,
-  MessageSquare,
   Smartphone,
-  Timer,
   XCircle,
-  type LucideIcon,
 } from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router-dom";
@@ -22,6 +19,7 @@ import { ActivityChart } from "../components/ActivityChart";
 import { CardHeader, Empty, ErrorNote, PageHeader, SignalBars, STATUS_LABEL, STATUS_TONE, StatusBadge, type Tone } from "../components/common";
 import { formatRelative } from "../lib/format";
 import { usePollInterval } from "@/lib/live";
+import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
 const WINDOWS = [
@@ -64,7 +62,7 @@ export function OverviewPage() {
         title="Vue d'ensemble"
         subtitle="Activité de la passerelle, mise à jour en direct."
         actions={
-          <div role="tablist" aria-label="Période" className="inline-flex rounded-md border bg-card p-0.5 shadow-xs">
+          <div role="tablist" aria-label="Période" className="inline-flex divide-x rounded-sm border bg-card">
             {WINDOWS.map((w) => (
               <button
                 key={w.value}
@@ -72,9 +70,9 @@ export function OverviewPage() {
                 aria-selected={window === w.value}
                 onClick={() => setWindow(w.value)}
                 className={cn(
-                  "rounded-sm px-3 py-1 text-sm font-medium transition-colors",
+                  "px-3 py-1 font-mono text-xs font-medium transition-colors",
                   window === w.value
-                    ? "bg-primary text-primary-foreground shadow-xs"
+                    ? "bg-primary text-primary-foreground"
                     : "text-muted-foreground hover:bg-accent hover:text-foreground",
                 )}
               >
@@ -89,9 +87,8 @@ export function OverviewPage() {
 
       {s && devices.data && <HealthBanner devices={devices.data.devices} queued={s.jobs.pending + s.jobs.assigned} />}
 
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-px overflow-hidden rounded-md border bg-border lg:grid-cols-4">
         <Kpi
-          icon={MessageSquare}
           label="Messages"
           value={a ? String(a.current.total) : undefined}
           delta={a ? pctDelta(a.current.total, a.previous.total) : null}
@@ -99,15 +96,13 @@ export function OverviewPage() {
           hint={`vs ${previousLabel}`}
         />
         <Kpi
-          icon={CheckCircle2}
           label="Taux de succès"
-          value={rateNow === null ? "—" : `${Math.round(rateNow)} %`}
+          value={!a ? undefined : rateNow === null ? "—" : `${Math.round(rateNow)} %`}
           delta={rateNow !== null && ratePrev !== null ? { value: rateNow - ratePrev, unit: "pts" } : null}
           deltaGood="up"
           hint="envoyés / terminés"
         />
         <Kpi
-          icon={Smartphone}
           label="Appareils prêts"
           value={s ? `${s.devices.ready} / ${s.devices.total}` : undefined}
           hint={s ? `${s.devices.connected} connecté${s.devices.connected > 1 ? "s" : ""}` : undefined}
@@ -115,7 +110,6 @@ export function OverviewPage() {
           tag={s && s.devices.total > 0 && s.devices.ready === 0 ? { text: "Critique", tone: "danger" } : undefined}
         />
         <Kpi
-          icon={Timer}
           label="En file"
           value={s ? String(s.jobs.pending + s.jobs.assigned) : undefined}
           hint={s && s.devices.ready === 0 && s.jobs.pending + s.jobs.assigned > 0 ? "en attente d'un appareil prêt" : "en attente ou assignés"}
@@ -130,7 +124,7 @@ export function OverviewPage() {
             {a ? (
               <ActivityChart buckets={a.buckets} bucketSeconds={a.bucketSeconds} />
             ) : (
-              <div className="h-[260px] animate-pulse rounded-md bg-muted/50" />
+              <Skeleton className="h-[260px] rounded-sm" />
             )}
           </div>
         </section>
@@ -143,7 +137,7 @@ export function OverviewPage() {
           <CardHeader
             title="Derniers messages"
             actions={
-              <Link to="/history" className="inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline">
+              <Link to="/history" className="inline-flex items-center gap-1 text-[13px] font-medium underline-offset-4 hover:underline">
                 Tout l'historique <ArrowRight className="size-3.5" aria-hidden />
               </Link>
             }
@@ -156,11 +150,12 @@ export function OverviewPage() {
           {recent.data && recent.data.jobs.length === 0 && (
             <Empty icon={<Inbox />}>
               Aucun message pour l'instant.{" "}
-              <Link to="/send" className="font-medium text-primary hover:underline">
+              <Link to="/send" className="font-medium underline decoration-foreground/30 underline-offset-4 hover:decoration-foreground">
                 Envoyer le premier
               </Link>
             </Empty>
           )}
+          {!recent.data && !recent.error && <SkeletonRows rows={4} />}
           <ul className="divide-y">
             {recent.data?.jobs.map((j) => (
               <li key={j.jobId}>
@@ -227,10 +222,10 @@ function HealthBanner({ devices, queued }: { devices: Device[]; queued: number }
     <div
       role="status"
       className={cn(
-        "mb-4 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-[10px] border px-4 py-3 text-sm",
-        level === "ok" && "border-success-line bg-success-soft",
-        level === "warn" && "border-warning-line bg-warning-soft",
-        level === "bad" && "border-danger-line bg-danger-soft",
+        "mb-4 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-sm border border-l-[3px] bg-card px-4 py-3 text-sm",
+        level === "ok" && "border-l-success",
+        level === "warn" && "border-l-warning",
+        level === "bad" && "border-l-destructive bg-danger-soft",
       )}
     >
       <Icon
@@ -254,7 +249,6 @@ function pctDelta(now: number, before: number): { value: number; unit: "%" } | n
 }
 
 function Kpi({
-  icon: Icon,
   label,
   value,
   hint,
@@ -263,8 +257,8 @@ function Kpi({
   meter,
   tag,
 }: {
-  icon: LucideIcon;
   label: string;
+  /** Undefined while loading: a placeholder bar holds the figure's place. */
   value?: string;
   hint?: string;
   delta?: { value: number; unit: string } | null;
@@ -277,24 +271,26 @@ function Kpi({
   const up = delta && delta.value > 0;
   const good = delta && !flat && (deltaGood === "up" ? up : !up);
   return (
-    <div className="card p-4">
-      <div className="flex items-center justify-between text-sm text-muted-foreground">
-        {label}
-        {tag ? (
-          <span className={cn("text-xs font-semibold", tag.tone === "danger" ? "text-destructive" : "text-warning")}>{tag.text}</span>
-        ) : (
-          <span className="flex size-7 items-center justify-center rounded-md bg-primary-soft text-primary">
-            <Icon className="size-4" aria-hidden />
+    <div className="bg-card p-4">
+      <div className="flex items-center justify-between gap-2">
+        <span className="eyebrow">{label}</span>
+        {tag && (
+          <span className={cn("font-mono text-[11px] font-medium uppercase", tag.tone === "danger" ? "text-destructive" : "text-warning")}>
+            {tag.text}
           </span>
         )}
       </div>
-      <div className="mt-2 flex items-baseline gap-2">
-        <span className="text-[1.75rem] leading-none font-semibold tracking-tight tabular-nums">{value ?? "—"}</span>
+      <div className="mt-3 flex items-baseline gap-2">
+        {value === undefined ? (
+          <Skeleton className="h-8 w-20 rounded-sm" />
+        ) : (
+          <span className="font-mono text-[1.875rem] leading-none font-medium tracking-tight">{value}</span>
+        )}
         {delta && (
           <span
             className={cn(
-              "inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-xs font-medium tabular-nums",
-              flat ? "bg-muted text-muted-foreground" : good ? "bg-success-soft text-success" : "bg-danger-soft text-destructive",
+              "inline-flex items-center gap-0.5 font-mono text-xs font-medium",
+              flat ? "text-muted-foreground" : good ? "text-success" : "text-destructive",
             )}
             title="Par rapport à la période précédente"
           >
@@ -305,11 +301,11 @@ function Kpi({
         )}
       </div>
       {meter !== undefined && (
-        <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-primary-soft" aria-hidden>
-          <div className="h-full rounded-full bg-primary transition-[width]" style={{ width: `${Math.round(meter * 100)}%` }} />
+        <div className="mt-3 h-1 overflow-hidden bg-muted" aria-hidden>
+          <div className="h-full bg-foreground/70 transition-[width]" style={{ width: `${Math.round(meter * 100)}%` }} />
         </div>
       )}
-      {hint && <div className={cn("text-xs text-muted-foreground", meter !== undefined ? "mt-2" : "mt-1.5")}>{hint}</div>}
+      {hint && <div className={cn("text-xs text-muted-foreground", meter !== undefined ? "mt-2" : "mt-2.5")}>{hint}</div>}
     </div>
   );
 }
@@ -321,7 +317,7 @@ function StatusBreakdown({ counts }: { counts?: Record<JobStatus, number> }) {
     <section className="card overflow-hidden">
       <CardHeader title="Par statut" description="Sur la période choisie." />
       <div className="p-4">
-        <div className="flex h-2.5 gap-0.5 overflow-hidden rounded-full bg-muted" aria-hidden>
+        <div className="flex h-2 gap-px overflow-hidden bg-muted" aria-hidden>
           {counts &&
             total > 0 &&
             JOB_STATUSES.filter((st) => counts[st] > 0).map((st) => (
@@ -333,11 +329,11 @@ function StatusBreakdown({ counts }: { counts?: Record<JobStatus, number> }) {
             <li key={st}>
               <Link
                 to={`/history?status=${st}`}
-                className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-row-hover"
+                className="flex items-center gap-2 rounded-sm px-2 py-1.5 text-sm transition-colors hover:bg-row-hover"
               >
-                <span className={cn("size-2 rounded-full", TONE_BG[STATUS_TONE[st]])} aria-hidden />
+                <span className={cn("size-2", TONE_BG[STATUS_TONE[st]])} aria-hidden />
                 <span className="text-muted-foreground">{STATUS_LABEL[st]}</span>
-                <span className="ml-auto font-medium tabular-nums">{counts ? counts[st] : "—"}</span>
+                <span className="ml-auto font-mono font-medium">{counts ? counts[st] : "—"}</span>
                 <span className="w-10 text-right text-xs text-muted-foreground tabular-nums">
                   {counts && total > 0 ? `${Math.round((counts[st] / total) * 100)} %` : ""}
                 </span>
@@ -357,7 +353,7 @@ function FleetPanel({ devices }: { devices?: Device[] }) {
       <CardHeader
         title="Flotte"
         actions={
-          <Link to="/devices" className="inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline">
+          <Link to="/devices" className="inline-flex items-center gap-1 text-[13px] font-medium underline-offset-4 hover:underline">
             Gérer <ArrowRight className="size-3.5" aria-hidden />
           </Link>
         }
@@ -365,11 +361,12 @@ function FleetPanel({ devices }: { devices?: Device[] }) {
       {devices && devices.length === 0 && (
         <Empty icon={<Smartphone />}>
           Aucun téléphone.{" "}
-          <Link to="/devices" className="font-medium text-primary hover:underline">
+          <Link to="/devices" className="font-medium underline decoration-foreground/30 underline-offset-4 hover:decoration-foreground">
             En ajouter un
           </Link>
         </Empty>
       )}
+      {!devices && <SkeletonRows rows={3} />}
       <ul className="divide-y">
         {devices?.map((d) => {
           const cap = d.policy?.limits?.perHour;
@@ -379,7 +376,7 @@ function FleetPanel({ devices }: { devices?: Device[] }) {
               <div className="flex items-center gap-2">
                 <span
                   className={cn(
-                    "size-2 shrink-0 rounded-full",
+                    "size-2 shrink-0",
                     d.ready ? "bg-success" : d.connected ? "bg-warning" : "bg-muted-foreground/40",
                   )}
                   aria-hidden
@@ -395,15 +392,15 @@ function FleetPanel({ devices }: { devices?: Device[] }) {
                     {d.health.batteryLevel} %
                   </span>
                 )}
-                <span className="ml-auto tabular-nums">
+                <span className="ml-auto font-mono">
                   {used}
                   {cap ? ` / ${cap}` : ""} · 1 h
                 </span>
               </div>
               {cap ? (
-                <div className="mt-2 ml-4 h-1 overflow-hidden rounded-full bg-muted" aria-hidden>
+                <div className="mt-2 ml-4 h-1 overflow-hidden bg-muted" aria-hidden>
                   <div
-                    className={cn("h-full rounded-full", used >= cap ? "bg-warning" : "bg-primary")}
+                    className={cn("h-full", used >= cap ? "bg-warning" : "bg-foreground/70")}
                     style={{ width: `${Math.min(100, (used / cap) * 100)}%` }}
                   />
                 </div>
@@ -413,5 +410,22 @@ function FleetPanel({ devices }: { devices?: Device[] }) {
         })}
       </ul>
     </section>
+  );
+}
+
+/** Placeholder rows while a list loads, shaped like the rows that will come. */
+function SkeletonRows({ rows }: { rows: number }) {
+  return (
+    <ul className="divide-y" aria-hidden>
+      {Array.from({ length: rows }, (_, i) => (
+        <li key={i} className="flex items-center gap-4 px-4 py-3">
+          <div className="flex-1 space-y-2">
+            <Skeleton className="h-3.5 w-32 rounded-sm" />
+            <Skeleton className="h-3 w-3/4 rounded-sm" />
+          </div>
+          <Skeleton className="h-5 w-16 rounded-sm" />
+        </li>
+      ))}
+    </ul>
   );
 }

@@ -78,8 +78,8 @@ export function DevicesPage() {
           <DeviceCard key={d.deviceId} device={d} />
         ))}
         {all.length === 1 && filter === "all" && (
-          <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed p-8 text-center">
-            <span className="inline-flex size-10 items-center justify-center rounded-full bg-primary-soft text-primary">
+          <div className="flex flex-col items-center justify-center gap-2 rounded-md border border-dashed p-8 text-center">
+            <span className="inline-flex size-10 items-center justify-center border border-input text-foreground">
               <Plus className="size-5" aria-hidden />
             </span>
             <span className="font-semibold">Ajoutez un second téléphone</span>
@@ -141,7 +141,7 @@ function DeviceCard({ device: d }: { device: Device }) {
     <article className="card flex flex-col overflow-hidden" aria-label={`${d.label || "Sans nom"}, ${state.label.toLowerCase()}`}>
       {d.enabled && !d.connected && (
         <div className="flex items-center gap-2 border-b border-danger-line bg-danger-soft px-5 py-2 text-[13px]">
-          <span className="size-1.5 rounded-full bg-destructive" aria-hidden />
+          <span className="size-1.5 bg-destructive" aria-hidden />
           <span className="font-medium text-destructive">
             Hors ligne{d.lastSeenAt ? ` depuis ${formatRelative(d.lastSeenAt).replace(/^il y a /, "")}` : ""}
           </span>
@@ -151,7 +151,7 @@ function DeviceCard({ device: d }: { device: Device }) {
       <div className="flex items-start gap-3 p-5 pb-4">
         <div
           className={cn(
-            "flex size-11 shrink-0 items-center justify-center rounded-lg",
+            "flex size-11 shrink-0 items-center justify-center rounded-md",
             state.tone === "success"
               ? "bg-success-soft text-success"
               : state.tone === "warning"
@@ -230,7 +230,7 @@ function DeviceCard({ device: d }: { device: Device }) {
                   <span className="min-w-0 flex-1 truncate">
                     {sim.carrier || sim.displayName || "Opérateur inconnu"}
                     {sim.phoneNumber && <span className="ml-2 font-mono text-muted-foreground">{sim.phoneNumber}</span>}
-                    {sim.isDefaultSms && <span className="ml-2 text-xs text-primary">par défaut</span>}
+                    {sim.isDefaultSms && <span className="ml-2 font-mono text-[11px] text-muted-foreground uppercase">par défaut</span>}
                     {simPolicy?.disabled && <span className="ml-2 text-xs text-muted-foreground">désactivée</span>}
                   </span>
                   <SignalBars level={sim.signalStrength} />
@@ -239,7 +239,7 @@ function DeviceCard({ device: d }: { device: Device }) {
                     {cap ? `/${cap}` : ""} · 1 h
                   </span>
                   <span
-                    className={cn("size-2 rounded-full", sim.simReady ? "bg-success" : "bg-muted-foreground/30")}
+                    className={cn("size-2", sim.simReady ? "bg-success" : "bg-muted-foreground/30")}
                     aria-label={sim.simReady ? "SIM prête" : "SIM indisponible"}
                   />
                 </div>
@@ -330,8 +330,8 @@ function Metric({ icon, label, children }: { icon: ReactNode; label: string; chi
 function Meter({ value, tone }: { value: number; tone: "success" | "warning" | "danger" | "primary" }) {
   const bg = { success: "bg-success", warning: "bg-warning", danger: "bg-destructive", primary: "bg-primary" }[tone];
   return (
-    <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-muted" aria-hidden>
-      <div className={cn("h-full rounded-full", bg)} style={{ width: `${Math.min(100, Math.max(0, value * 100))}%` }} />
+    <div className="mt-1.5 h-1 overflow-hidden bg-muted" aria-hidden>
+      <div className={cn("h-full", bg)} style={{ width: `${Math.min(100, Math.max(0, value * 100))}%` }} />
     </div>
   );
 }
@@ -369,7 +369,7 @@ function EnrollCode({ enrollment: { mint, expiresIn, expired } }: { enrollment: 
   return (
     <div className="flex flex-col items-center">
       {mint.isPending && (
-        <div className="flex size-64 items-center justify-center rounded-lg border border-dashed text-sm text-muted-foreground">
+        <div className="flex size-64 items-center justify-center rounded-md border border-dashed text-sm text-muted-foreground">
           <Loader2 className="mr-2 size-4 animate-spin" aria-hidden />
           Génération…
         </div>
@@ -379,7 +379,7 @@ function EnrollCode({ enrollment: { mint, expiresIn, expired } }: { enrollment: 
           src={`data:image/png;base64,${mint.data.qrCodePngBase64}`}
           alt="QR code d'enrôlement"
           // White behind the code in both themes: a scanner wants dark-on-light.
-          className={cn("size-64 rounded-lg border bg-white p-2", expired && "opacity-20")}
+          className={cn("size-64 rounded-md border bg-white p-2", expired && "opacity-20")}
         />
       )}
       <ErrorNote error={mint.error} />
@@ -432,7 +432,7 @@ function EnrollSteps() {
     <ol className="flex flex-col gap-3.5">
       {steps.map(([title, hint], i) => (
         <li key={title} className="flex gap-3">
-          <span className="inline-flex size-7 shrink-0 items-center justify-center rounded-full border font-mono text-xs font-medium text-muted-foreground">
+          <span className="inline-flex size-7 shrink-0 items-center justify-center border font-mono text-xs font-medium text-muted-foreground">
             {i + 1}
           </span>
           <span className="flex flex-col">
@@ -452,7 +452,7 @@ function Onboarding() {
     <section aria-labelledby="ob-title" className="card flex flex-wrap items-center gap-8 p-8">
       <div className="flex min-w-0 flex-[1_1_360px] flex-col gap-6">
         <div className="flex flex-col gap-1.5">
-          <span className="text-section font-medium text-primary uppercase">Première connexion</span>
+          <span className="eyebrow text-foreground">Première connexion</span>
           <h2 id="ob-title" className="text-xl font-semibold tracking-tight">
             Connectez votre premier téléphone
           </h2>
@@ -464,7 +464,7 @@ function Onboarding() {
         <div className="flex items-center gap-2.5 text-sm">
           <span className="relative flex size-2.5">
             <span className="absolute inline-flex size-full animate-ping rounded-full bg-primary opacity-60 motion-reduce:hidden" />
-            <span className="relative inline-flex size-2.5 rounded-full bg-primary" />
+            <span className="relative inline-flex size-2.5 bg-primary" />
           </span>
           <span className="font-medium">En attente du téléphone…</span>
           <span className="text-muted-foreground">il apparaîtra ici automatiquement</span>
@@ -499,7 +499,7 @@ function CopyPayload({ payload }: { payload: string }) {
   return (
     <button
       type="button"
-      className="mt-2 inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"
+      className="mt-2 inline-flex items-center gap-1.5 text-sm font-medium underline decoration-foreground/30 underline-offset-4 hover:decoration-foreground"
       onClick={() =>
         // Unavailable off a secure origin (plain http to a LAN address): the QR still works.
         navigator.clipboard?.writeText(payload).then(() => setCopied(true), () => {})

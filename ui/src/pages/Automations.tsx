@@ -362,7 +362,7 @@ function AutomationEditor({
             ))}
             <button
               type="button"
-              className="text-sm font-medium text-primary hover:underline"
+              className="text-sm font-medium underline decoration-foreground/30 underline-offset-4 hover:decoration-foreground"
               onClick={() => set({ conditions: [...(a.conditions ?? []), { field: fields.at(-1) ?? "body", op: "gte", value: "" }] })}
             >
               + Condition
@@ -430,7 +430,7 @@ function AutomationEditor({
           ))}
           <button
             type="button"
-            className="text-sm font-medium text-primary hover:underline"
+            className="text-sm font-medium underline decoration-foreground/30 underline-offset-4 hover:decoration-foreground"
             onClick={() => set({ actions: [...a.actions, { type: "forward" }] })}
           >
             + Action

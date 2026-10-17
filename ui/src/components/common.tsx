@@ -33,7 +33,7 @@ const TONE_PILL: Record<Tone, string> = {
   warning: "bg-warning-soft text-warning border-warning-line",
   danger: "bg-danger-soft text-destructive border-danger-line",
   info: "bg-info-soft text-info border-info-line",
-  primary: "bg-primary-soft text-primary border-primary-line",
+  primary: "bg-card text-foreground border-input",
   neutral: "bg-muted text-muted-foreground border-border",
 };
 
@@ -50,12 +50,12 @@ export function Pill({ tone, children, className }: { tone: Tone; children: Reac
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs font-medium whitespace-nowrap",
+        "inline-flex items-center gap-1.5 rounded-sm border px-1.5 py-px font-mono text-[11px] font-medium tracking-wide whitespace-nowrap uppercase",
         TONE_PILL[tone],
         className,
       )}
     >
-      <span className={cn("size-1.5 rounded-full", TONE_DOT[tone])} aria-hidden />
+      <span className={cn("size-1.5", TONE_DOT[tone])} aria-hidden />
       {children}
     </span>
   );
@@ -68,7 +68,7 @@ export function StatusBadge({ status }: { status: JobStatus }) {
 export function Dot({ on, label }: { on: boolean; label: string }) {
   return (
     <span className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-      <span className={cn("size-2 rounded-full", on ? "bg-success" : "bg-muted-foreground/30")} />
+      <span className={cn("size-2", on ? "bg-success" : "bg-muted-foreground/30")} />
       {label}
     </span>
   );
@@ -87,9 +87,9 @@ export function PageHeader({
   eyebrow?: string;
 }) {
   return (
-    <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
+    <div className="mb-6 flex flex-wrap items-end justify-between gap-4 border-b pb-5">
       <div className="min-w-0">
-        {eyebrow && <p className="mb-1 text-section font-medium text-primary uppercase">{eyebrow}</p>}
+        {eyebrow && <p className="eyebrow mb-1.5">{eyebrow}</p>}
         <h1 className="text-title font-semibold">{title}</h1>
         {subtitle && <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p>}
       </div>
@@ -104,7 +104,7 @@ export function CardHeader({ title, description, actions }: { title: ReactNode; 
   return (
     <div className="flex items-center justify-between gap-4 border-b px-4 py-3">
       <div className="min-w-0">
-        <h2 className="text-sm font-semibold">{title}</h2>
+        <h2 className="eyebrow text-foreground">{title}</h2>
         {description && <p className="mt-0.5 text-xs text-muted-foreground">{description}</p>}
       </div>
       {actions}
@@ -144,7 +144,7 @@ export function SignalBars({ level }: { level: number }) {
       {[1, 2, 3, 4].map((i) => (
         <span
           key={i}
-          className={cn("w-1 rounded-sm", i <= level ? tone : "bg-muted-foreground/25")}
+          className={cn("w-1", i <= level ? tone : "bg-muted-foreground/25")}
           style={{ height: 3 + i * 3 }}
         />
       ))}
@@ -216,14 +216,14 @@ export function Modal({
         showCloseButton={false}
         {...(description ? {} : { "aria-describedby": undefined })}
         className={cn(
-          "gap-0 bg-popover shadow-drawer sm:rounded-l-2xl",
+          "gap-0 bg-popover shadow-drawer",
           "w-full sm:max-w-none",
           wide ? "sm:w-[640px]" : "sm:w-[440px]",
         )}
       >
         <header className="flex items-start gap-3 border-b px-5 py-4">
           <div className="min-w-0 flex-1">
-            <SheetTitle className="text-base font-semibold">{label}</SheetTitle>
+            <SheetTitle className="text-base font-semibold tracking-tight">{label}</SheetTitle>
             {description && <SheetDescription className="mt-0.5 text-sm text-muted-foreground">{description}</SheetDescription>}
           </div>
           <SheetClose

@@ -28,17 +28,12 @@ export function LoginPage() {
 
   return (
     <div className="relative flex min-h-svh items-center justify-center overflow-hidden px-4">
-      {/* A soft glow of the brand colour behind the card, so the screen is not just a box on grey. */}
-      <div
-        aria-hidden
-        className="pointer-events-none absolute top-1/2 left-1/2 size-[36rem] -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary/15 blur-3xl"
-      />
       <form onSubmit={submit} className="card relative w-full max-w-sm p-8">
         <div className="mb-6 flex items-center gap-3">
-          <img src="/ui/favicon.svg" alt="" className="size-10 rounded-lg" />
+          <img src="/ui/favicon.svg" alt="" className="size-10" />
           <div>
-            <h1 className="text-title font-semibold">Relaix</h1>
-            <p className="text-sm text-muted-foreground">Passerelle SMS — console</p>
+            <h1 className="font-mono text-2xl font-medium tracking-tight lowercase">relaix</h1>
+            <p className="eyebrow">Passerelle SMS — console</p>
           </div>
         </div>
 

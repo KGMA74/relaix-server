@@ -98,7 +98,7 @@ function Nav({ groups }: { groups: NavGroup[] }) {
     <>
       {groups.map((group) => (
         <SidebarGroup key={group.label}>
-          <SidebarGroupLabel className="text-section text-sidebar-foreground/80 uppercase">{group.label}</SidebarGroupLabel>
+          <SidebarGroupLabel className="font-mono text-section text-sidebar-foreground/80 uppercase">{group.label}</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
               {group.items.map((item) => (
@@ -107,15 +107,15 @@ function Nav({ groups }: { groups: NavGroup[] }) {
                     asChild
                     isActive={isActive(pathname, item)}
                     tooltip={item.label}
-                    // The active row: raised, outlined, its icon in the accent.
-                    className="h-[34px] data-[active=true]:shadow-[inset_0_0_0_1px_var(--sidebar-border)] data-[active=true]:[&>svg]:text-primary"
+                    // The active row: an ink rule on its left edge.
+                    className="h-8 rounded-sm data-[active=true]:font-medium data-[active=true]:shadow-[inset_2px_0_0_var(--foreground)]"
                   >
                     <NavLink to={item.to} end={item.end} onClick={() => isMobile && setOpenMobile(false)}>
                       <item.icon aria-hidden />
                       <span>{item.label}</span>
                       {item.to === "/devices" && offline && (
-                        <span className="ml-auto inline-flex shrink-0 items-center gap-1 rounded-full bg-danger-soft px-1.5 text-[11px] leading-5 font-medium text-destructive group-data-[collapsible=icon]:hidden">
-                          <span className="size-1.5 rounded-full bg-destructive" aria-hidden />
+                        <span className="ml-auto inline-flex shrink-0 items-center gap-1 font-mono text-[11px] leading-5 font-medium text-destructive group-data-[collapsible=icon]:hidden">
+                          <span className="size-1.5 bg-destructive" aria-hidden />
                           {offline}
                         </span>
                       )}
@@ -148,16 +148,16 @@ function LiveIndicator() {
     <span
       title={title[status]}
       className={cn(
-        "hidden h-7 items-center gap-2 rounded-full border px-3 text-xs font-medium sm:inline-flex",
+        "hidden h-7 items-center gap-2 px-1 font-mono text-[11px] font-medium tracking-wide uppercase sm:inline-flex",
         status === "offline" && "text-muted-foreground",
       )}
     >
       <span
         aria-hidden
         className={cn(
-          "size-[7px] rounded-full",
-          status === "live" && "bg-success shadow-[0_0_0_3px_var(--color-success-soft)]",
-          status === "connecting" && "bg-warning shadow-[0_0_0_3px_var(--color-warning-soft)]",
+          "size-[7px]",
+          status === "live" && "animate-pulse bg-success",
+          status === "connecting" && "bg-warning",
           status === "offline" && "bg-muted-foreground",
         )}
       />
@@ -227,15 +227,15 @@ export function Layout({ brand, extraGroups = [], footer, user }: LayoutProps = 
             <SidebarMenuItem>
               <SidebarMenuButton size="lg" asChild tooltip={name}>
                 <NavLink to="/">
-                  <span className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary text-white" aria-hidden>
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M4 17V8a3 3 0 0 1 3-3h10a3 3 0 0 1 3 3v6a3 3 0 0 1-3 3h-6l-5 3z" />
-                      <path d="M9 11h.01M12.5 11h.01M16 11h.01" />
+                  {/* A relay: two stations and the hop between them. */}
+                  <span className="inline-flex size-8 shrink-0 items-center justify-center border border-foreground text-foreground" aria-hidden>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="square">
+                      <path d="M4 18V9M20 18V6M4 9l8 5 8-8" />
                     </svg>
                   </span>
                   <div className="grid flex-1 text-left leading-tight">
-                    <span className="truncate font-semibold">{name}</span>
-                    <span className="truncate text-xs text-sidebar-foreground/60">{brand?.tagline ?? "Passerelle SMS"}</span>
+                    <span className="truncate font-mono text-[15px] font-medium tracking-tight lowercase">{name}</span>
+                    <span className="truncate font-mono text-[10.5px] text-sidebar-foreground/70 uppercase">{brand?.tagline ?? "Passerelle SMS"}</span>
                   </div>
                 </NavLink>
               </SidebarMenuButton>
@@ -248,11 +248,11 @@ export function Layout({ brand, extraGroups = [], footer, user }: LayoutProps = 
             <button
               type="button"
               onClick={() => setSearching(true)}
-              className="flex h-[34px] w-full items-center gap-2 rounded-md border bg-card px-2.5 text-[13px] text-muted-foreground transition-colors hover:text-foreground"
+              className="flex h-8 w-full items-center gap-2 rounded-sm border border-sidebar-border bg-background px-2.5 text-[13px] text-muted-foreground transition-colors hover:text-foreground"
             >
               <Search className="size-[15px]" aria-hidden />
               Rechercher…
-              <kbd className="ml-auto rounded-[5px] border px-1.5 font-mono text-[11px]">{isMac ? "⌘K" : "Ctrl K"}</kbd>
+              <kbd className="ml-auto font-mono text-[11px]">{isMac ? "⌘K" : "Ctrl K"}</kbd>
             </button>
           </div>
           <Nav groups={allGroups} />
@@ -261,10 +261,10 @@ export function Layout({ brand, extraGroups = [], footer, user }: LayoutProps = 
         <SidebarFooter>
           {footer}
           {/* Who is signed in, and the way out. Folded, only the way out. */}
-          <div className="flex items-center gap-2.5 rounded-[10px] border bg-card p-2.5 group-data-[collapsible=icon]:border-0 group-data-[collapsible=icon]:bg-transparent group-data-[collapsible=icon]:p-0">
+          <div className="-mx-2 -mb-2 flex items-center gap-2.5 border-t border-sidebar-border px-4 py-3 group-data-[collapsible=icon]:mx-0 group-data-[collapsible=icon]:mb-0 group-data-[collapsible=icon]:border-0 group-data-[collapsible=icon]:p-0">
             <span
               aria-hidden
-              className="inline-flex size-8 shrink-0 items-center justify-center rounded-full bg-primary-soft text-[13px] font-semibold text-primary group-data-[collapsible=icon]:hidden"
+              className="inline-flex size-8 shrink-0 items-center justify-center border border-input font-mono text-[13px] font-medium group-data-[collapsible=icon]:hidden"
             >
               {(user?.name ?? "O").charAt(0).toUpperCase()}
             </span>
@@ -272,7 +272,7 @@ export function Layout({ brand, extraGroups = [], footer, user }: LayoutProps = 
               <span className="truncate text-[13px] font-medium" title={user?.name}>
                 {user?.name ?? "Opérateur"}
               </span>
-              <span className="truncate text-xs text-muted-foreground">{user?.role ?? "Clé API"}</span>
+              <span className="truncate font-mono text-[11px] text-muted-foreground uppercase">{user?.role ?? "Clé API"}</span>
             </span>
             <Button variant="ghost" size="icon-sm" onClick={signOut} aria-label="Se déconnecter" title="Se déconnecter">
               <LogOut aria-hidden />
@@ -283,7 +283,7 @@ export function Layout({ brand, extraGroups = [], footer, user }: LayoutProps = 
       </Sidebar>
 
       <SidebarInset className="min-h-0 overflow-hidden">
-        <header className="flex h-14 shrink-0 items-center gap-2 border-b bg-background/80 px-4 backdrop-blur">
+        <header className="flex h-12 shrink-0 items-center gap-2 border-b bg-background px-4">
           <SidebarTrigger className="-ml-1" title="Réduire / déplier (Ctrl+B)" />
           <Separator orientation="vertical" className="mr-1 data-[orientation=vertical]:h-4" />
           <nav aria-label="Fil d'Ariane" className="flex min-w-0 items-center gap-2 text-[13px]">

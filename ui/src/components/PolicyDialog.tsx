@@ -289,7 +289,7 @@ function AvailabilityEditor({
                         update(i, { ...w, days: next.length === 7 ? [] : next });
                       }}
                       className={cn(
-                        "size-7 rounded-full text-xs font-medium transition-colors",
+                        "size-7 rounded-sm font-mono text-xs font-medium transition-colors",
                         on ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-accent",
                       )}
                     >
@@ -330,7 +330,7 @@ function AvailabilityEditor({
           ))}
           <button
             type="button"
-            className="inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline"
+            className="inline-flex items-center gap-1 text-sm font-medium underline decoration-foreground/30 underline-offset-4 hover:decoration-foreground"
             onClick={() => setWindows([...windows, { days: [], start: 8 * 60, end: 20 * 60 }])}
           >
             <Plus className="size-4" aria-hidden /> Ajouter une plage
@@ -399,12 +399,12 @@ function AcceptEditor({
           <div className="mb-2 flex flex-wrap gap-1.5">
             {selected.length === 0 && <span className="text-sm text-muted-foreground">Tous les pays</span>}
             {selected.map((c) => (
-              <span key={c} className="inline-flex items-center gap-1 rounded-full border bg-muted py-0.5 pr-1 pl-2.5 text-xs font-medium">
+              <span key={c} className="inline-flex items-center gap-1 rounded-sm border bg-muted py-0.5 pr-1 pl-2 font-mono text-xs font-medium">
                 {countryName(c)}
                 <span className="font-mono text-muted-foreground">+{countries.find((x) => x.code === c)?.prefixes[0]}</span>
                 <button
                   type="button"
-                  className="rounded-full p-0.5 hover:bg-accent"
+                  className="rounded-sm p-0.5 hover:bg-accent"
                   onClick={() => onChange({ ...value, countries: selected.filter((x) => x !== c) })}
                   aria-label={`Retirer ${countryName(c)}`}
                 >

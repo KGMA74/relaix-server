@@ -32,7 +32,7 @@ export function IntegrationPage() {
       />
 
       <div className="flex flex-wrap-reverse items-start gap-10">
-        <div className="flex min-w-0 flex-[999_1_560px] flex-col gap-7 text-sm leading-relaxed text-foreground/85 [&_p_code]:rounded-[5px] [&_p_code]:bg-muted [&_p_code]:px-1.5 [&_p_code]:py-px [&_p_code]:font-mono [&_p_code]:text-[0.85em] [&_p_code]:text-foreground">
+        <div className="flex min-w-0 flex-[999_1_560px] flex-col gap-7 text-sm leading-relaxed text-foreground/85 [&_p_code]:rounded-sm [&_p_code]:bg-muted [&_p_code]:px-1.5 [&_p_code]:py-px [&_p_code]:font-mono [&_p_code]:text-[0.85em] [&_p_code]:text-foreground">
           <div className="grid gap-3 sm:grid-cols-2">
             <Tile label="URL de base">
               <span className="flex-1 truncate font-mono text-sm font-medium text-foreground">{base}</span>
@@ -244,10 +244,10 @@ function verify(secret, timestamp, rawBody, header) {
           </Section>
 
           <Section id="errors" title="Codes d'erreur">
-            <div className="overflow-x-auto rounded-xl border bg-card">
+            <div className="overflow-x-auto rounded-md border bg-card">
               <table className="w-full min-w-[520px] text-[13px]">
                 <thead>
-                  <tr className="border-b text-left text-section font-medium text-muted-foreground uppercase">
+                  <tr className="border-b text-left eyebrow">
                     <th className="w-20 px-4 py-2.5">HTTP</th>
                     <th className="w-56 px-4 py-2.5">code</th>
                     <th className="px-4 py-2.5">Quand</th>
@@ -259,7 +259,7 @@ function verify(secret, timestamp, rawBody, header) {
                       <td className="px-4 py-2.5">
                         <span
                           className={cn(
-                            "rounded-[5px] px-1.5 py-0.5 font-mono text-xs font-semibold",
+                            "rounded-sm px-1.5 py-0.5 font-mono text-xs font-semibold",
                             http >= 500 ? "bg-danger-soft text-destructive" : "bg-warning-soft text-warning",
                           )}
                         >
@@ -277,7 +277,7 @@ function verify(secret, timestamp, rawBody, header) {
 
           <Section id="mcp" title="Assistants IA — MCP">
             <p>
-              La passerelle est un serveur <a className="text-primary hover:underline" href="https://modelcontextprotocol.io">MCP</a> à{" "}
+              La passerelle est un serveur <a className="underline decoration-foreground/30 underline-offset-4 hover:decoration-foreground" href="https://modelcontextprotocol.io">MCP</a> à{" "}
               <code>{base}/mcp</code> : un assistant (Claude, ou tout client MCP) y trouve des outils pour lister les téléphones, envoyer des
               SMS, lancer des codes USSD, lire les SMS reçus et écrire les automatisations — décrivez-lui en français ce que vous voulez. Il
               n'a que les droits de la clé utilisée : créez-en une pour lui, la révoquer le déconnecte.
@@ -301,7 +301,7 @@ function verify(secret, timestamp, rawBody, header) {
         </div>
 
         <nav aria-label="Sur cette page" className="flex flex-[1_1_200px] flex-col gap-1 pt-1.5 lg:sticky lg:top-6">
-          <span className="pb-1.5 pl-3 text-section font-medium text-muted-foreground uppercase">Sur cette page</span>
+          <span className="pb-1.5 pl-3 eyebrow">Sur cette page</span>
           {SECTIONS.map((s) => (
             <a
               key={s.id}
@@ -314,10 +314,10 @@ function verify(secret, timestamp, rawBody, header) {
               {s.label}
             </a>
           ))}
-          <div className="mt-4 flex flex-col gap-1.5 rounded-[10px] border bg-card p-3">
+          <div className="mt-4 flex flex-col gap-1.5 rounded-md border bg-card p-3">
             <span className="text-[13px] font-medium">Tester sans code</span>
             <span className="text-xs text-muted-foreground">La page Envoyer appelle la même API.</span>
-            <Link to="/send" className="inline-flex items-center gap-1 text-[13px] font-medium text-primary hover:underline">
+            <Link to="/send" className="inline-flex items-center gap-1 text-[13px] font-medium underline decoration-foreground/30 underline-offset-4 hover:decoration-foreground">
               Ouvrir Envoyer <ArrowRight className="size-3.5" aria-hidden />
             </Link>
           </div>
@@ -372,7 +372,7 @@ function Section({ id, title, method, path, children }: { id: string; title: str
           <span className="inline-flex items-center gap-2 font-mono text-[13px] font-medium">
             <span
               className={cn(
-                "rounded-[5px] px-1.5 py-0.5 font-semibold",
+                "rounded-sm px-1.5 py-0.5 font-semibold",
                 method === "POST" ? "bg-success-soft text-success" : "bg-info-soft text-info",
               )}
             >
@@ -389,7 +389,7 @@ function Section({ id, title, method, path, children }: { id: string; title: str
 
 function Tile({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="flex flex-col gap-1.5 rounded-xl border bg-card px-4 py-3.5">
+    <div className="flex flex-col gap-1.5 rounded-md border bg-card px-4 py-3.5">
       <span className="text-xs text-muted-foreground">{label}</span>
       <span className="flex items-center gap-2">{children}</span>
     </div>
@@ -417,8 +417,8 @@ function CopyButton({ text, label, dark }: { text: string; label: string; dark?:
         "inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border px-2 text-xs font-medium transition-colors",
         dark
           ? copied
-            ? "border-[#3fd48b]/35 bg-[#3fd48b]/10 text-[#3fd48b]"
-            : "border-[#30344a] bg-[#171a22] text-[#a2a5b4] hover:text-white"
+            ? "border-[#62c08d]/35 bg-[#62c08d]/10 text-[#62c08d]"
+            : "border-[#3d3c37] bg-[#22221f] text-[#9c978c] hover:text-white"
           : "text-muted-foreground hover:bg-accent hover:text-foreground",
       )}
     >
@@ -431,8 +431,8 @@ function CopyButton({ text, label, dark }: { text: string; label: string; dark?:
 /** Code stays dark in both themes: it reads as code, not as another card. */
 function Code({ children }: { children: string }) {
   return (
-    <div className="flex items-start rounded-[10px] border border-[#242733] bg-[#0d0f14]">
-      <pre className="min-w-0 flex-1 overflow-x-auto p-4 font-mono text-[13px] leading-[1.7] text-[#e6e7ee]">{children}</pre>
+    <div className="flex items-start rounded-md border border-[#2f2e2a] bg-[#10100e]">
+      <pre className="min-w-0 flex-1 overflow-x-auto p-4 font-mono text-[13px] leading-[1.7] text-[#e9e6df]">{children}</pre>
       <div className="p-2.5">
         <CopyButton text={children} label="Copier" dark />
       </div>
@@ -446,8 +446,8 @@ function Snippets({ snippets }: { snippets: Record<string, string> }) {
   const [lang, setLang] = useState(langs[0]!);
   const code = snippets[lang]!;
   return (
-    <div className="overflow-hidden rounded-[10px] border border-[#242733] bg-[#0d0f14]">
-      <div className="flex items-center justify-between border-b border-[#242733] py-1.5 pr-2 pl-2.5">
+    <div className="overflow-hidden rounded-md border border-[#2f2e2a] bg-[#10100e]">
+      <div className="flex items-center justify-between border-b border-[#2f2e2a] py-1.5 pr-2 pl-2.5">
         <div role="tablist" aria-label="Langage" className="flex gap-0.5">
           {langs.map((l) => (
             <button
@@ -458,7 +458,7 @@ function Snippets({ snippets }: { snippets: Record<string, string> }) {
               onClick={() => setLang(l)}
               className={cn(
                 "h-7 rounded-md px-2.5 font-mono text-xs font-medium transition-colors",
-                l === lang ? "bg-[#1c1f29] text-[#ecedf3]" : "text-[#8a8d9c] hover:text-[#ecedf3]",
+                l === lang ? "bg-[#262622] text-[#e9e6df]" : "text-[#9c978c] hover:text-[#e9e6df]",
               )}
             >
               {l}
@@ -467,7 +467,7 @@ function Snippets({ snippets }: { snippets: Record<string, string> }) {
         </div>
         <CopyButton text={code} label="Copier" dark />
       </div>
-      <pre className="overflow-x-auto p-4 font-mono text-[13px] leading-[1.75] text-[#e6e7ee]">{code}</pre>
+      <pre className="overflow-x-auto p-4 font-mono text-[13px] leading-[1.75] text-[#e9e6df]">{code}</pre>
     </div>
   );
 }
@@ -476,10 +476,10 @@ function Snippets({ snippets }: { snippets: Record<string, string> }) {
 function Fields({ rows, head = ["Champ", "Description"] }: { rows: [string, string, string, boolean?][]; head?: [string, string] }) {
   const typed = rows.some(([, type]) => type !== "");
   return (
-    <div className="overflow-x-auto rounded-xl border bg-card">
+    <div className="overflow-x-auto rounded-md border bg-card">
       <table className="w-full min-w-[520px] text-[13px]">
         <thead>
-          <tr className="border-b text-left text-section font-medium text-muted-foreground uppercase">
+          <tr className="border-b text-left eyebrow">
             <th className="px-4 py-2.5">{head[0]}</th>
             {typed && <th className="px-4 py-2.5">Type</th>}
             <th className="px-4 py-2.5">{head[1]}</th>

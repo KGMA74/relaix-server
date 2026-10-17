@@ -1,8 +1,16 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
-@import "@fontsource-variable/geist";
-@import "@fontsource-variable/geist-mono";
+@import "@fontsource/ibm-plex-sans/latin-400.css";
+@import "@fontsource/ibm-plex-sans/latin-ext-400.css";
+@import "@fontsource/ibm-plex-sans/latin-500.css";
+@import "@fontsource/ibm-plex-sans/latin-ext-500.css";
+@import "@fontsource/ibm-plex-sans/latin-600.css";
+@import "@fontsource/ibm-plex-sans/latin-ext-600.css";
+@import "@fontsource/ibm-plex-mono/latin-400.css";
+@import "@fontsource/ibm-plex-mono/latin-ext-400.css";
+@import "@fontsource/ibm-plex-mono/latin-500.css";
+@import "@fontsource/ibm-plex-mono/latin-ext-500.css";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -10,122 +18,119 @@
  * Two themes, both first-class. The class is set before first paint by the
  * script in index.html; use-theme.ts keeps it in sync afterwards.
  *
- * Beyond shadcn's tokens: success / warning / info, so a job status or a
- * device state is a meaning, not a Tailwind palette picked page by page.
+ * The look is an instrument's rather than an app's: warm paper or graphite,
+ * ink for what you press, hairline rules, near-square corners. Colour is kept
+ * for meaning (success / warning / danger / info), so a job status or a device
+ * state stands out because nothing else on the page competes with it.
  */
 :root {
-  --radius: 0.5rem;
+  --radius: 0.1875rem;
 
-  --background: #f6f6f8;
-  --foreground: #121318;
-  --card: #ffffff;
-  --card-foreground: #121318;
-  --popover: #ffffff;
-  --popover-foreground: #121318;
+  --background: #f3f1ec;
+  --foreground: #1b1a17;
+  --card: #fbfaf7;
+  --card-foreground: #1b1a17;
+  --popover: #fbfaf7;
+  --popover-foreground: #1b1a17;
 
-  --primary: #5b47e6;
-  --primary-foreground: #ffffff;
-  --secondary: #f3f3f6;
-  --secondary-foreground: #121318;
-  --muted: #f3f3f6;
-  --muted-foreground: #55586a;
-  --accent: #ededf2;
-  --accent-foreground: #121318;
-  --destructive: #c62f2f;
+  --primary: #1b1a17;
+  --primary-foreground: #fbfaf7;
+  --secondary: #ebe8e1;
+  --secondary-foreground: #1b1a17;
+  --muted: #ebe8e1;
+  --muted-foreground: #66625a;
+  --accent: #e6e2da;
+  --accent-foreground: #1b1a17;
+  --destructive: #b3261e;
   --destructive-foreground: #ffffff;
-  --border: #e3e3ea;
-  --input: #cfcfda;
-  --ring: #5b47e6;
+  --border: #dbd7cd;
+  --input: #c9c4b8;
+  --ring: #1b1a17;
 
-  --success: #0f7a4a;
+  --success: #1d6b45;
   --success-foreground: #ffffff;
-  --warning: #9a5b00;
+  --warning: #8f5a00;
   --warning-foreground: #ffffff;
-  --info: #3f4fd0;
+  --info: #2c5a8a;
   --info-foreground: #ffffff;
 
-  --sidebar: #fbfbfc;
-  --sidebar-foreground: #55586a;
-  --sidebar-primary: #5b47e6;
-  --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #f3f3f6;
-  --sidebar-accent-foreground: #121318;
-  --sidebar-border: #e3e3ea;
-  --sidebar-ring: #5b47e6;
+  --sidebar: #ebe8e1;
+  --sidebar-foreground: #66625a;
+  --sidebar-primary: #1b1a17;
+  --sidebar-primary-foreground: #fbfaf7;
+  --sidebar-accent: #dfdbd2;
+  --sidebar-accent-foreground: #1b1a17;
+  --sidebar-border: #d6d1c6;
+  --sidebar-ring: #1b1a17;
 
-  /*
-   * Chart series, by outcome. Status hues, since the series ARE states; checked
-   * with the dataviz validator against the card surface in each theme (L band,
-   * CVD separation, contrast). The green/indigo pair sits in the tritan floor
-   * band, so the chart always carries the 2px gaps, a legend and a table view.
-   */
-  --chart-ok: #15803d;
-  --chart-flight: #4f46e5;
-  --chart-fail: #c62828;
-  --chart-grid: #e7e9f0;
+  /* Chart series, by outcome: the status hues, since the series ARE states. */
+  --chart-ok: #1d6b45;
+  --chart-flight: #2c5a8a;
+  --chart-fail: #b3261e;
+  --chart-grid: #e2ded5;
 
-  /* Cards sit flat, their border is enough; only what floats casts a shadow. */
+  /* Nothing floats but drawers and menus. */
   --surface-shadow: none;
-  --drawer-shadow: -16px 0 40px rgb(18 19 24 / 0.06);
+  --drawer-shadow: -24px 0 48px rgb(27 26 23 / 0.08);
 }
 
 .dark {
-  --background: #0a0b0f;
-  --foreground: #ecedf3;
-  --card: #111319;
-  --card-foreground: #ecedf3;
-  --popover: #14161d;
-  --popover-foreground: #ecedf3;
+  --background: #141412;
+  --foreground: #e9e6df;
+  --card: #1b1b18;
+  --card-foreground: #e9e6df;
+  --popover: #1e1e1b;
+  --popover-foreground: #e9e6df;
 
-  --primary: #6a57f0;
-  --primary-foreground: #ffffff;
-  --secondary: #1c1f29;
-  --secondary-foreground: #ecedf3;
-  --muted: #1c1f29;
-  --muted-foreground: #a2a5b4;
-  --accent: #171a22;
-  --accent-foreground: #ecedf3;
-  --destructive: #ff7070;
-  --destructive-foreground: #2a0909;
-  --border: #242733;
-  --input: #30344a;
-  --ring: #6a57f0;
+  --primary: #e9e6df;
+  --primary-foreground: #141412;
+  --secondary: #262622;
+  --secondary-foreground: #e9e6df;
+  --muted: #262622;
+  --muted-foreground: #9c978c;
+  --accent: #2a2a26;
+  --accent-foreground: #e9e6df;
+  --destructive: #f2786c;
+  --destructive-foreground: #2a0b08;
+  --border: #2f2e2a;
+  --input: #3d3c37;
+  --ring: #e9e6df;
 
-  --success: #3fd48b;
-  --success-foreground: #04231a;
-  --warning: #f4b740;
-  --warning-foreground: #241a03;
-  --info: #8d9bff;
-  --info-foreground: #04192a;
+  --success: #62c08d;
+  --success-foreground: #0a2116;
+  --warning: #e0a840;
+  --warning-foreground: #241803;
+  --info: #7fb0e0;
+  --info-foreground: #0a1a2a;
 
-  --sidebar: #0d0e13;
-  --sidebar-foreground: #a2a5b4;
-  --sidebar-primary: #6a57f0;
-  --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #171a22;
-  --sidebar-accent-foreground: #ecedf3;
-  --sidebar-border: #242733;
-  --sidebar-ring: #6a57f0;
+  --sidebar: #10100e;
+  --sidebar-foreground: #9c978c;
+  --sidebar-primary: #e9e6df;
+  --sidebar-primary-foreground: #141412;
+  --sidebar-accent: #22221f;
+  --sidebar-accent-foreground: #e9e6df;
+  --sidebar-border: #262622;
+  --sidebar-ring: #e9e6df;
 
-  --chart-ok: #059669;
-  --chart-flight: #6366f1;
-  --chart-fail: #ef4444;
-  --chart-grid: #232933;
+  --chart-ok: #4fae7c;
+  --chart-flight: #6b9fd3;
+  --chart-fail: #e8665a;
+  --chart-grid: #2a2a26;
 
   --surface-shadow: none;
-  --drawer-shadow: -16px 0 40px rgb(0 0 0 / 0.35);
+  --drawer-shadow: -24px 0 48px rgb(0 0 0 / 0.4);
 }
 
 @theme {
-  --font-sans: "Geist Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --font-mono: "Geist Mono Variable", ui-monospace, "SFMono-Regular", "Cascadia Code", Consolas, monospace;
+  --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", "Cascadia Code", Consolas, monospace;
 
-  --text-title: 1.75rem;
+  --text-title: 1.625rem;
   --text-title--line-height: 2rem;
-  --text-title--letter-spacing: -0.025em;
+  --text-title--letter-spacing: -0.015em;
   --text-section: 0.6875rem;
   --text-section--line-height: 1rem;
-  --text-section--letter-spacing: 0.07em;
+  --text-section--letter-spacing: 0.08em;
 }
 
 @theme inline {
@@ -164,11 +169,11 @@
   --color-info-foreground: var(--info-foreground);
 
   /* Opaque tints: a status colour mixed into the card, never an alpha that lets a row show through. */
-  --color-success-soft: color-mix(in oklab, var(--success) 14%, var(--card));
-  --color-warning-soft: color-mix(in oklab, var(--warning) 14%, var(--card));
-  --color-danger-soft: color-mix(in oklab, var(--destructive) 14%, var(--card));
-  --color-info-soft: color-mix(in oklab, var(--info) 14%, var(--card));
-  --color-primary-soft: color-mix(in oklab, var(--primary) 14%, var(--card));
+  --color-success-soft: color-mix(in oklab, var(--success) 10%, var(--card));
+  --color-warning-soft: color-mix(in oklab, var(--warning) 10%, var(--card));
+  --color-danger-soft: color-mix(in oklab, var(--destructive) 10%, var(--card));
+  --color-info-soft: color-mix(in oklab, var(--info) 10%, var(--card));
+  --color-primary-soft: color-mix(in oklab, var(--primary) 7%, var(--card));
   --color-success-line: color-mix(in oklab, var(--success) 35%, var(--card));
   --color-warning-line: color-mix(in oklab, var(--warning) 35%, var(--card));
   --color-danger-line: color-mix(in oklab, var(--destructive) 35%, var(--card));
@@ -237,10 +242,10 @@
  */
 @layer components {
   .card {
-    @apply rounded-xl border border-border bg-card text-card-foreground shadow-surface;
+    @apply rounded-md border border-border bg-card text-card-foreground shadow-surface;
   }
   .input {
-    @apply h-9 w-full min-w-0 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs outline-none
+    @apply h-9 w-full min-w-0 rounded-md border border-input bg-transparent px-3 py-1 text-sm outline-none
       transition-[color,box-shadow] placeholder:text-muted-foreground
       focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/40
       disabled:cursor-not-allowed disabled:opacity-50 dark:bg-input/30;
@@ -266,7 +271,7 @@
     @apply bg-primary text-primary-foreground hover:bg-primary/90;
   }
   .btn-secondary {
-    @apply border border-input bg-card text-foreground shadow-xs hover:bg-accent dark:bg-input/30 dark:hover:bg-input/50;
+    @apply border border-input bg-card text-foreground hover:bg-accent dark:bg-input/30 dark:hover:bg-input/50;
   }
   .btn-ghost {
     @apply h-8 px-2.5 text-muted-foreground hover:bg-accent hover:text-foreground;
@@ -275,7 +280,7 @@
     @apply bg-destructive text-destructive-foreground hover:bg-destructive/90;
   }
   .th {
-    @apply h-10 px-4 text-left align-middle text-section font-medium uppercase text-muted-foreground;
+    @apply h-9 px-4 text-left align-middle font-mono text-section font-medium uppercase text-muted-foreground;
   }
   .td {
     @apply px-4 py-3 align-middle text-sm;
@@ -301,5 +306,12 @@
 @media (prefers-reduced-motion: reduce) {
   .animate-page-enter {
     animation: none;
+  }
+}
+
+@layer components {
+  /* A small mono caps label: section names, figure captions, tags. */
+  .eyebrow {
+    @apply font-mono text-section font-medium text-muted-foreground uppercase;
   }
 }

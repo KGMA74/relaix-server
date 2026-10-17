@@ -236,12 +236,12 @@ function JobDetail({
         <Field label="Parts envoyées">{j.partsSent}</Field>
       </dl>
 
-      <h3 className="mt-6 mb-3 text-section font-medium uppercase text-muted-foreground">Chronologie</h3>
+      <h3 className="mt-6 mb-3 eyebrow">Chronologie</h3>
       <ErrorNote error={events.error} />
       <ol className="relative ml-2 border-l">
         {events.data?.events.map((e, i) => (
           <li key={i} className="mb-3 ml-4">
-            <span className="absolute -left-1.5 mt-1.5 size-3 rounded-full border-2 border-background bg-primary" />
+            <span className="absolute -left-1.5 mt-1.5 size-3 border-2 border-background bg-foreground" />
             <div className="flex flex-wrap items-center gap-2 text-sm">
               {e.status ? <StatusBadge status={e.status as JobStatus} /> : <span className="text-xs text-muted-foreground">événement</span>}
               <span className="text-xs text-muted-foreground">{formatDateTime(e.createdAt)}</span>

@@ -282,7 +282,7 @@ export function SendPage() {
 
             <button
               type="button"
-              className="inline-flex items-center gap-1 self-start text-sm font-medium text-primary hover:underline"
+              className="inline-flex items-center gap-1 self-start text-sm font-medium underline decoration-foreground/30 underline-offset-4 hover:decoration-foreground"
               aria-expanded={showAdvanced}
               onClick={() => setShowAdvanced((v) => !v)}
             >
@@ -366,10 +366,10 @@ export function SendPage() {
             </div>
             <div className="flex flex-col gap-2.5 bg-background/60 px-4 pt-5 pb-6">
               <div className="flex flex-col items-center gap-0.5 pb-2">
-                <span className="inline-flex size-9 items-center justify-center rounded-full bg-muted text-xs font-semibold text-muted-foreground">SIM</span>
+                <span className="inline-flex size-9 items-center justify-center rounded-sm border bg-muted font-mono text-[11px] font-medium text-muted-foreground">SIM</span>
                 <span className="font-mono text-xs text-muted-foreground">{sim?.phoneNumber || (sim ? simLabel(sim) : "Numéro de la SIM d'envoi")}</span>
               </div>
-              <span className="max-w-[80%] self-start rounded-[18px] rounded-bl-md bg-muted px-3.5 py-2.5 text-[15px] leading-snug break-words whitespace-pre-wrap">
+              <span className="max-w-[80%] self-start rounded-md rounded-bl-md bg-muted px-3.5 py-2.5 text-[15px] leading-snug break-words whitespace-pre-wrap">
                 {body || <span className="text-muted-foreground">Votre message…</span>}
               </span>
               <span className="pl-1 text-[11px] text-muted-foreground">
@@ -436,7 +436,7 @@ function Choice({ checked, onChange, title, text }: { checked: boolean; onChange
   return (
     <label
       className={cn(
-        "flex cursor-pointer gap-2.5 rounded-[10px] border p-3 text-sm transition-colors",
+        "flex cursor-pointer gap-2.5 rounded-md border p-3 text-sm transition-colors",
         checked ? "border-primary bg-primary-soft shadow-[0_0_0_1px_var(--primary)]" : "border-input hover:bg-row-hover",
       )}
     >

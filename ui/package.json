@@ -11,8 +11,8 @@
     "test:automations": "node scripts/automation-vectors.ts"
   },
   "dependencies": {
-    "@fontsource-variable/geist": "^5.3.0",
-    "@fontsource-variable/geist-mono": "^5.3.0",
+    "@fontsource/ibm-plex-mono": "^5.3.0",
+    "@fontsource/ibm-plex-sans": "^5.3.0",
     "@tanstack/react-query": "^5.62.7",
     "class-variance-authority": "^0.7.1",
     "cn": "^0.4.0",
