@@ -144,6 +144,45 @@ func TestAutomationValidation(t *testing.T) {
 		{"webhook bad url", func(a *Automation) { a.Actions = []Action{{Type: ActionWebhook, URL: "ftp://x"}} }, "url"},
 		{"ussd with pin", func(a *Automation) { a.Actions = []Action{{Type: ActionUSSD, Code: "*144*2*1*{from}*{amount}*{pin}#"}} }, ""},
 		{"ussd not a code", func(a *Automation) { a.Actions = []Action{{Type: ActionUSSD, Code: "144{pin}"}} }, "USSD"},
+		{"ussd extract feeds the next action", func(a *Automation) {
+			a.Actions = []Action{
+				{Type: ActionUSSD, Code: "*144#", Replies: []string{"5"}, Paging: &Paging{Marker: "Suivant", Reply: "n"}, Extract: `est de (?<solde>[0-9 .,]+) FCFA`},
+				{Type: ActionWebhook, URL: "https://x.test/h", Body: `{"solde": {solde}}`},
+			}
+		}, ""},
+		{"an extracted field is not there before its action", func(a *Automation) {
+			a.Actions = []Action{
+				{Type: ActionWebhook, URL: "https://x.test/h", Body: `{"solde": {solde}}`},
+				{Type: ActionUSSD, Code: "*144#", Extract: `est de (?<solde>[0-9]+)`},
+			}
+		}, "not a field"},
+		{"extract shadows a field", func(a *Automation) {
+			a.Actions = []Action{{Type: ActionUSSD, Code: "*144#", Extract: `(?<amount>[0-9]+)`}}
+		}, "group name"},
+		{"paging without a reply", func(a *Automation) {
+			a.Actions = []Action{{Type: ActionUSSD, Code: "*144#", Paging: &Paging{Marker: "Suivant"}}}
+		}, "paging"},
+		{"too many pages", func(a *Automation) {
+			a.Actions = []Action{{Type: ActionUSSD, Code: "*144#", Paging: &Paging{Marker: "Suivant", Reply: "n", MaxPages: 50}}}
+		}, "maxPages"},
+		{"scheduled", func(a *Automation) {
+			a.Senders, a.Pattern = nil, ""
+			a.Schedule = &Schedule{EveryMinutes: 60}
+			a.Actions = []Action{
+				{Type: ActionUSSD, Code: "*144#", Extract: `(?<solde>[0-9.]+) FCFA`},
+				{Type: ActionWebhook, URL: "https://x.test/h", Body: `{"solde": {solde}, "at": "{now}"}`},
+			}
+		}, ""},
+		{"scheduled with a pattern", func(a *Automation) { a.Schedule = &Schedule{EveryMinutes: 60} }, "no senders"},
+		{"scheduled too often", func(a *Automation) {
+			a.Senders, a.Pattern = nil, ""
+			a.Schedule = &Schedule{EveryMinutes: 5}
+		}, "everyMinutes"},
+		{"scheduled uses an SMS field", func(a *Automation) {
+			a.Senders, a.Pattern = nil, ""
+			a.Schedule = &Schedule{EveryMinutes: 60}
+			a.Actions = []Action{{Type: ActionReplySMS, To: "{sender}", Text: "x"}}
+		}, "not a field"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -204,5 +243,74 @@ func TestNumber(t *testing.T) {
 	}
 	if _, ok := Number("abc"); ok {
 		t.Error("abc is not a number")
+	}
+}
+
+func TestExtractionVectors(t *testing.T) {
+	raw, err := os.ReadFile("testdata/automation_vectors.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var file struct {
+		Extractions []struct {
+			Name    string
+			Extract string
+			Screens []string
+			Match   bool
+			Fields  map[string]string
+		}
+	}
+	if err := json.Unmarshal(raw, &file); err != nil {
+		t.Fatal(err)
+	}
+	if len(file.Extractions) == 0 {
+		t.Fatal("no extraction vectors")
+	}
+	for _, v := range file.Extractions {
+		t.Run(v.Name, func(t *testing.T) {
+			got, ok := Extract(v.Extract, v.Screens)
+			if ok != v.Match || !maps.Equal(got, v.Fields) {
+				t.Errorf("Extract = %v, %v; want %v, %v", got, ok, v.Fields, v.Match)
+			}
+		})
+	}
+}
+
+func TestScheduledAutomationsIgnoreSMS(t *testing.T) {
+	a := valid()
+	a.Senders, a.Pattern = nil, ""
+	a.Schedule = &Schedule{EveryMinutes: 60}
+	if _, ok := a.Match("OrangeMoney", "anything", "", 0); ok {
+		t.Error("a scheduled automation matched an SMS")
+	}
+	p := FromProto(ToProto(Normalize(Policy{Automations: []Automation{a}})))
+	if got := p.Automations[0].Schedule; got == nil || got.EveryMinutes != 60 {
+		t.Errorf("schedule over the wire = %+v", got)
+	}
+}
+
+func TestOldAgentsGetScheduledAutomationsDisabled(t *testing.T) {
+	sched := valid()
+	sched.ID, sched.Senders, sched.Pattern = "s", nil, ""
+	sched.Schedule = &Schedule{EveryMinutes: 60}
+	p := Normalize(Policy{Automations: []Automation{valid(), sched}})
+
+	old := ToProtoFor(p, false)
+	if old.Automations[1].GetEnabled() || !old.Automations[0].GetEnabled() {
+		t.Error("an old agent was sent the scheduled automation enabled, or the other disabled")
+	}
+	if !p.Automations[1].Enabled {
+		t.Error("ToProtoFor edited the caller's rules")
+	}
+	if !ToProtoFor(p, true).Automations[1].GetEnabled() {
+		t.Error("a new agent was sent it disabled")
+	}
+
+	// What the old agent sends back loses neither the schedule nor the switch.
+	back := Normalize(FromProto(old))
+	back.Automations[1].Schedule = nil
+	kept := KeepSchedules(back, p)
+	if kept.Automations[1].Schedule == nil || !kept.Automations[1].Enabled {
+		t.Errorf("kept = %+v", kept.Automations[1])
 	}
 }

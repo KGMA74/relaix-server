@@ -1468,6 +1468,7 @@ func testUSSD(t *testing.T, newStore Factory) {
 		j, err := s.Jobs().Create(ctx, &store.Job{
 			Kind: store.KindUSSD, Body: "*144*1234#", Mode: store.ModeQueued,
 			Replies: []string{"2", "1"}, Sensitive: sensitive,
+			Paging: &policy.Paging{Marker: "Suivant", Reply: "n", MaxPages: 4}, Extract: `(?P<solde>[0-9.]+) FCFA`,
 		})
 		if err != nil {
 			t.Fatalf("Create: %v", err)
@@ -1490,6 +1491,12 @@ func testUSSD(t *testing.T, newStore Factory) {
 		}
 		if len(got.Responses) != 0 {
 			t.Errorf("Responses = %q before any result", got.Responses)
+		}
+		if got.Paging == nil || got.Paging.Marker != "Suivant" || got.Paging.MaxPages != 4 || got.Extract == "" {
+			t.Errorf("paging %+v, extract %q did not round-trip", got.Paging, got.Extract)
+		}
+		if plain, _ := s.Jobs().Create(ctx, &store.Job{Body: "hi", Recipient: "+22670000000", Mode: store.ModeQueued}); plain != nil && plain.Paging != nil {
+			t.Errorf("a job without paging read back %+v", plain.Paging)
 		}
 
 		sms, err := s.Jobs().Create(ctx, &store.Job{Recipient: "+22670000000", Body: "x", Mode: store.ModeQueued})

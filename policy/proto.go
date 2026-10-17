@@ -2,6 +2,7 @@ package policy
 
 import (
 	"google.golang.org/protobuf/types/known/timestamppb"
+	"slices"
 
 	v1 "github.com/KGMA74/relaix-server/gen/smsgateway/v1"
 )
@@ -99,4 +100,35 @@ func limitsToProto(l Limits) *v1.SendLimits {
 
 func limitsFromProto(m *v1.SendLimits) Limits {
 	return Limits{PerHour: int(m.GetPerHour()), PerDay: int(m.GetPerDay())}
+}
+
+// ToProtoFor is ToProto for an agent that may not know scheduled automations
+// (scheduling false): those are sent disabled. An agent that predates them
+// would see an automation with no sender and no pattern, and run it on
+// every SMS.
+func ToProtoFor(p Policy, scheduling bool) *v1.DevicePolicy {
+	if !scheduling {
+		p.Automations = slices.Clone(p.Automations)
+		for i := range p.Automations {
+			if p.Automations[i].Schedule != nil {
+				p.Automations[i].Enabled = false
+			}
+		}
+	}
+	return ToProto(p)
+}
+
+// KeepSchedules carries the schedules of current over to rules an agent that
+// does not know them sends back: it dropped or disabled them without meaning
+// to, so each automation scheduled in current keeps its schedule and its
+// enabled state.
+func KeepSchedules(proposed, current Policy) Policy {
+	proposed.Automations = slices.Clone(proposed.Automations)
+	for i := range proposed.Automations {
+		if was, ok := current.Automation(proposed.Automations[i].ID); ok && was.Schedule != nil {
+			proposed.Automations[i].Schedule = was.Schedule
+			proposed.Automations[i].Enabled = was.Enabled
+		}
+	}
+	return proposed
 }

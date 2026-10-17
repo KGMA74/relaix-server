@@ -175,7 +175,7 @@ func (s *Server) Connect(stream v1.DeviceGateway_ConnectServer) error {
 				Accepted:                 true,
 				HeartbeatIntervalSeconds: int32(s.opts.HeartbeatInterval.Seconds()),
 				StaleJobIds:              stale,
-				Policy:                   policy.ToProto(device.Policy),
+				Policy:                   policy.ToProtoFor(device.Policy, device.Can(store.CapAutomationSchedule)),
 			},
 		},
 	}
@@ -376,6 +376,9 @@ func (s *Server) onHeartbeat(ctx context.Context, device *store.Device, reg *hub
 func (s *Server) onPolicyUpdate(ctx context.Context, device *store.Device, u *v1.PolicyUpdate, log *slog.Logger) {
 	proposed := policy.Normalize(policy.FromProto(u.GetPolicy()))
 	current := device.Policy
+	if !device.Can(store.CapAutomationSchedule) {
+		proposed = policy.KeepSchedules(proposed, current)
+	}
 	if err := policy.Validate(proposed); err != nil {
 		log.Warn("rejected rules edited on the device", "err", err)
 		if d, err := s.store.Devices().Get(ctx, device.ID); err == nil {
@@ -395,7 +398,7 @@ func (s *Server) onPolicyUpdate(ctx context.Context, device *store.Device, u *v1
 	msg := &v1.ServerMessage{
 		MessageId: uuid.NewString(),
 		SentAt:    timestamppb.New(s.opts.Now()),
-		Payload:   &v1.ServerMessage_Policy{Policy: policy.ToProto(current)},
+		Payload:   &v1.ServerMessage_Policy{Policy: policy.ToProtoFor(current, device.Can(store.CapAutomationSchedule))},
 	}
 	if err := s.hub.Send(ctx, device.ID, msg); err != nil {
 		// Not reading, or gone: it gets the rules again in its next

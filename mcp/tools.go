@@ -144,10 +144,12 @@ func sendSMS(ctx context.Context, c *caller, args json.RawMessage) (any, error) 
 
 func runUSSD(ctx context.Context, c *caller, args json.RawMessage) (any, error) {
 	var in struct {
-		DeviceID       *string  `json:"deviceId"`
-		Code           string   `json:"code"`
-		Replies        []string `json:"replies,omitempty"`
-		SubscriptionID *int32   `json:"subscriptionId,omitempty"`
+		DeviceID       *string        `json:"deviceId"`
+		Code           string         `json:"code"`
+		Replies        []string       `json:"replies,omitempty"`
+		SubscriptionID *int32         `json:"subscriptionId,omitempty"`
+		Paging         *policy.Paging `json:"paging,omitempty"`
+		Extract        string         `json:"extract,omitempty"`
 	}
 	if err := decode(args, &in); err != nil {
 		return nil, err
@@ -617,14 +619,32 @@ var automationSchema = obj{
 			"body":   str(`webhook: empty for the default JSON, or a template; a JSON one stays JSON: "{from}" quoted is text, {amount} bare is a number.`),
 			"secret": str("webhook: signing secret. Omit: one is generated."),
 			"code":   str("ussd: a USSD template, e.g. *144*2*1*{from}*{amount}*{pin}#. {pin} is the SIM's PIN, filled by the phone after the user approves."),
+			"replies": obj{"type": "array", "items": obj{"type": "string"}, "maxItems": 10,
+				"description": "ussd: typed in order into the menus the code opens; may use fields. Needs ussd_menu."},
+			"paging":  pagingSchema,
+			"extract": str("ussd: an RE2 pattern searched in what the network displayed (screens joined by a line break); its named groups become fields for the actions after this one, e.g. Compte Normal est de (?P<solde>[0-9 .,]+) FCFA."),
 		}, "type")},
 		"limits": schema(obj{"perHour": num("Runs per hour at most."), "perDay": num("Runs per day at most.")}),
+		"schedule": obj{"type": "object", "additionalProperties": false, "required": []string{"everyMinutes"},
+			"description": "Run by itself at intervals instead of on received SMS (no senders, no pattern then); fields: {now} {sim}. E.g. read a balance every hour.",
+			"properties": obj{
+				"everyMinutes": num("15 at least."),
+				"window":       obj{"type": "object", "description": "Only inside these hours: {timeZone, windows: [{days, start, end}]} as in set_device_rules."},
+			}},
 	},
 	"required":             []string{"name", "actions"},
 	"additionalProperties": false,
 }
 
 var deviceID = str("A device id, from list_devices.")
+
+var pagingSchema = obj{"type": "object", "additionalProperties": false, "required": []string{"marker", "reply"},
+	"description": "Follow an answer over its screens: while the last one contains marker (e.g. Suivant), type reply (e.g. n). Needs the ussd_menu capability.",
+	"properties": obj{
+		"marker":   str("Text that says there is more, e.g. Suivant."),
+		"reply":    str("What to type for the next screen, e.g. n."),
+		"maxPages": num("Screens read at most, the first included; 0: 3, at most 10."),
+	}}
 
 var toolDefinitions = []obj{
 	tool("list_devices", "List phones",
@@ -648,6 +668,8 @@ var toolDefinitions = []obj{
 		schema(obj{
 			"deviceId":       deviceID,
 			"code":           str("e.g. *144# or *144*2*1*70000000*5000*{pin}#."),
+			"paging":         pagingSchema,
+			"extract":        str("An RE2 pattern with named groups: the finished job's fields are what it found in the network's answer."),
 			"replies":        obj{"type": "array", "items": obj{"type": "string"}, "description": "Typed in order into the menus the code opens."},
 			"subscriptionId": num("SIM to dial from; omitted: the default one."),
 		}, "deviceId", "code"), false, true),

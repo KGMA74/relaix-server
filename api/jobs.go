@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/KGMA74/relaix-server/events"
+	"github.com/KGMA74/relaix-server/policy"
 	"github.com/KGMA74/relaix-server/store"
 )
 
@@ -84,13 +85,15 @@ type jobResponse struct {
 	Body string `json:"body"`
 	// Replies, Responses and Sensitive are a USSD job's: what is typed into
 	// its menus (never shown when sensitive), and what the network displayed.
-	Replies        []string `json:"replies,omitempty"`
-	Responses      []string `json:"responses,omitempty"`
-	Sensitive      bool     `json:"sensitive,omitempty"`
-	Mode           string   `json:"mode"`
-	Priority       int      `json:"priority"`
-	DeviceID       *string  `json:"deviceId,omitempty"`
-	SubscriptionID *int32   `json:"subscriptionId,omitempty"`
+	Replies   []string `json:"replies,omitempty"`
+	Responses []string `json:"responses,omitempty"`
+	// Fields are what extract found in Responses.
+	Fields         map[string]string `json:"fields,omitempty"`
+	Sensitive      bool              `json:"sensitive,omitempty"`
+	Mode           string            `json:"mode"`
+	Priority       int               `json:"priority"`
+	DeviceID       *string           `json:"deviceId,omitempty"`
+	SubscriptionID *int32            `json:"subscriptionId,omitempty"`
 	// SentFromSubscriptionID is the SIM the job was handed to — the requested
 	// one or the one the device's rules picked. Absent for the phone's
 	// default, or before assignment.
@@ -530,6 +533,9 @@ func toJobResponse(j *store.Job) jobResponse {
 	} else if j.RequestedDeviceID != nil {
 		id := j.RequestedDeviceID.String()
 		resp.DeviceID = &id
+	}
+	if j.Extract != "" && len(j.Responses) > 0 {
+		resp.Fields, _ = policy.Extract(j.Extract, j.Responses)
 	}
 	if j.Sensitive {
 		// Not even while the job waits: whoever reads the history has no

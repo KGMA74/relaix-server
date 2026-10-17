@@ -5,17 +5,37 @@
     "description": "Quand l'opérateur mobile money annonce un paiement reçu, extrait le montant et le numéro de l'expéditeur, et les envoie en JSON à votre serveur. Pour confirmer une commande dès que le client a payé.",
     "category": "Mobile money",
     "params": [
-      { "key": "sender", "label": "Expéditeur des SMS", "description": "Le nom affiché par l'opérateur.", "example": "OrangeMoney", "required": true },
-      { "key": "url", "label": "Adresse du webhook", "description": "Votre serveur, qui reçoit le paiement en JSON.", "example": "https://exemple.com/hooks/paiements", "required": true }
+      {
+        "key": "sender",
+        "label": "Expéditeur des SMS",
+        "description": "Le nom affiché par l'opérateur.",
+        "example": "OrangeMoney",
+        "required": true
+      },
+      {
+        "key": "url",
+        "label": "Adresse du webhook",
+        "description": "Votre serveur, qui reçoit le paiement en JSON.",
+        "example": "https://exemple.com/hooks/paiements",
+        "required": true
+      }
     ],
     "automation": {
       "name": "Paiement reçu → webhook",
-      "senders": ["{{sender}}"],
+      "senders": [
+        "{{sender}}"
+      ],
       "pattern": "(?i)re[çc]u\\s+(?P<amount>[0-9][0-9 .,]*)\\s*F?CFA.*?(?P<from>[0-9]{8,})",
       "actions": [
-        { "type": "webhook", "url": "{{url}}", "body": "{\"montant\": {amount}, \"de\": \"{from}\", \"sms\": \"{body}\"}" }
+        {
+          "type": "webhook",
+          "url": "{{url}}",
+          "body": "{\"montant\": {amount}, \"de\": \"{from}\", \"sms\": \"{body}\"}"
+        }
       ],
-      "limits": { "perHour": 120 }
+      "limits": {
+        "perHour": 120
+      }
     }
   },
   {
@@ -24,15 +44,38 @@
     "description": "Transmet à la passerelle les paiements mobile money au-dessus d'un montant : ils apparaissent dans les SMS reçus et partent vers le webhook du compte, montant extrait.",
     "category": "Mobile money",
     "params": [
-      { "key": "sender", "label": "Expéditeur des SMS", "example": "MoovMoney", "required": true },
-      { "key": "min", "label": "Montant minimum", "description": "En FCFA, sans espace.", "example": "10000", "required": true }
+      {
+        "key": "sender",
+        "label": "Expéditeur des SMS",
+        "example": "MoovMoney",
+        "required": true
+      },
+      {
+        "key": "min",
+        "label": "Montant minimum",
+        "description": "En FCFA, sans espace.",
+        "example": "10000",
+        "required": true
+      }
     ],
     "automation": {
       "name": "Paiements de {{min}} FCFA et plus",
-      "senders": ["{{sender}}"],
+      "senders": [
+        "{{sender}}"
+      ],
       "pattern": "(?i)re[çc]u\\s+(?P<amount>[0-9][0-9 .,]*)\\s*F?CFA",
-      "conditions": [{ "field": "amount", "op": "gte", "value": "{{min}}" }],
-      "actions": [{ "type": "forward" }]
+      "conditions": [
+        {
+          "field": "amount",
+          "op": "gte",
+          "value": "{{min}}"
+        }
+      ],
+      "actions": [
+        {
+          "type": "forward"
+        }
+      ]
     }
   },
   {
@@ -41,14 +84,35 @@
     "description": "Répond automatiquement par SMS à qui envoie un mot-clé (INFO, PRIX, COMMANDE…), avec le texte de votre choix. Plafonné pour ne pas épuiser la SIM.",
     "category": "Réponses",
     "params": [
-      { "key": "keyword", "label": "Mot-clé", "description": "Cherché dans le message, majuscules ou non.", "example": "INFO", "required": true },
-      { "key": "reply", "label": "Réponse", "description": "480 caractères au plus.", "example": "Merci ! Nos horaires : 8 h – 18 h, du lundi au samedi.", "required": true }
+      {
+        "key": "keyword",
+        "label": "Mot-clé",
+        "description": "Cherché dans le message, majuscules ou non.",
+        "example": "INFO",
+        "required": true
+      },
+      {
+        "key": "reply",
+        "label": "Réponse",
+        "description": "480 caractères au plus.",
+        "example": "Merci ! Nos horaires : 8 h – 18 h, du lundi au samedi.",
+        "required": true
+      }
     ],
     "automation": {
       "name": "Réponse à « {{keyword}} »",
       "pattern": "(?i){{keyword}}",
-      "actions": [{ "type": "reply_sms", "to": "{sender}", "text": "{{reply}}" }],
-      "limits": { "perHour": 30, "perDay": 200 }
+      "actions": [
+        {
+          "type": "reply_sms",
+          "to": "{sender}",
+          "text": "{{reply}}"
+        }
+      ],
+      "limits": {
+        "perHour": 30,
+        "perDay": 200
+      }
     }
   },
   {
@@ -57,12 +121,23 @@
     "description": "Transmet à la passerelle chaque SMS d'un expéditeur donné (banque, opérateur, service), sans le modifier : il apparaît dans les SMS reçus et part vers le webhook du compte.",
     "category": "Transfert",
     "params": [
-      { "key": "sender", "label": "Expéditeur", "example": "MaBanque", "required": true }
+      {
+        "key": "sender",
+        "label": "Expéditeur",
+        "example": "MaBanque",
+        "required": true
+      }
     ],
     "automation": {
       "name": "SMS de {{sender}}",
-      "senders": ["{{sender}}"],
-      "actions": [{ "type": "forward" }]
+      "senders": [
+        "{{sender}}"
+      ],
+      "actions": [
+        {
+          "type": "forward"
+        }
+      ]
     }
   },
   {
@@ -71,12 +146,71 @@
     "description": "Envoie chaque SMS reçu par le téléphone à votre serveur, directement depuis le téléphone, signé avec un secret propre à l'automatisation.",
     "category": "Transfert",
     "params": [
-      { "key": "url", "label": "Adresse du webhook", "example": "https://exemple.com/hooks/sms", "required": true }
+      {
+        "key": "url",
+        "label": "Adresse du webhook",
+        "example": "https://exemple.com/hooks/sms",
+        "required": true
+      }
     ],
     "automation": {
       "name": "Tous les SMS → webhook",
-      "actions": [{ "type": "webhook", "url": "{{url}}" }],
-      "limits": { "perHour": 300 }
+      "actions": [
+        {
+          "type": "webhook",
+          "url": "{{url}}"
+        }
+      ],
+      "limits": {
+        "perHour": 300
+      }
+    }
+  },
+  {
+    "id": "builtin-balance-webhook",
+    "name": "Solde → webhook, toutes les heures",
+    "description": "Le téléphone compose le code du solde à intervalle régulier, suit les écrans « Suivant », lit le solde et l'envoie à votre serveur. Pour surveiller un compte mobile money sans y penser.",
+    "category": "Mobile money",
+    "params": [
+      {
+        "key": "code",
+        "label": "Code du solde",
+        "description": "Le code USSD qui affiche le solde. {pin} si l'opérateur le demande : il faudra l'approuver sur le téléphone.",
+        "example": "*144#",
+        "required": true
+      },
+      {
+        "key": "url",
+        "label": "Adresse du webhook",
+        "example": "https://exemple.com/hooks/solde",
+        "required": true
+      }
+    ],
+    "automation": {
+      "name": "Solde toutes les heures",
+      "schedule": {
+        "everyMinutes": 60
+      },
+      "actions": [
+        {
+          "type": "ussd",
+          "code": "{{code}}",
+          "paging": {
+            "marker": "Suivant",
+            "reply": "n",
+            "maxPages": 3
+          },
+          "extract": "solde[^0-9]*(?<solde>[0-9][0-9 .,]*) ?F?CFA"
+        },
+        {
+          "type": "webhook",
+          "url": "{{url}}",
+          "body": "{\"solde\": {solde}, \"le\": \"{now}\"}"
+        }
+      ],
+      "limits": {
+        "perDay": 48
+      }
     }
   }
 ]

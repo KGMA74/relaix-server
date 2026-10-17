@@ -7,6 +7,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/KGMA74/relaix-server/policy"
 	"github.com/KGMA74/relaix-server/store"
 )
 
@@ -29,6 +30,11 @@ type ussdRequest struct {
 	Code string `json:"code"`
 	// Replies are typed, in order, into the menus the code opens.
 	Replies []string `json:"replies,omitempty"`
+	// Paging follows an answer that ends with "n Suivant" over its screens.
+	Paging *policy.Paging `json:"paging,omitempty"`
+	// Extract is a pattern whose named groups, found in what the network
+	// displayed, are returned as the job's fields.
+	Extract string `json:"extract,omitempty"`
 	// Sensitive keeps the code and replies out of every listing and wipes
 	// them once the job is over: for a code or a reply carrying a PIN.
 	Sensitive bool `json:"sensitive,omitempty"`
@@ -94,9 +100,24 @@ func (s *Server) buildUSSDJob(req *ussdRequest) (*store.Job, *apiError) {
 	if apiErr != nil {
 		return nil, apiErr
 	}
+	if req.Paging != nil {
+		p := *req.Paging
+		p.Marker, p.Reply = strings.TrimSpace(p.Marker), strings.TrimSpace(p.Reply)
+		if err := policy.ValidatePaging(&p); err != nil {
+			return nil, badRequest("invalid_paging", err.Error())
+		}
+		req.Paging = &p
+	}
+	extract := strings.TrimSpace(req.Extract)
+	if err := policy.ValidateExtract(extract); err != nil {
+		return nil, badRequest("invalid_extract", err.Error())
+	}
+
 	job.Kind = store.KindUSSD
 	job.Body = code
 	job.Replies = replies
+	job.Paging = req.Paging
+	job.Extract = extract
 	job.Sensitive = req.Sensitive
 	return job, nil
 }

@@ -135,6 +135,10 @@ const (
 	// CapUSSDPin resolves {pin} in a USSD code from the phone's own vault,
 	// for codes approved there.
 	CapUSSDPin = "ussd_pin"
+	// CapAutomationSchedule runs automations on a schedule, not only on
+	// received SMS. An agent without it is sent scheduled ones disabled: it
+	// would otherwise run them on every SMS.
+	CapAutomationSchedule = "automation_schedule"
 )
 
 // PinPlaceholder stands for a SIM's PIN in a USSD code. The gateway never
@@ -294,6 +298,11 @@ type Job struct {
 	// Sensitive marks a job whose Body or Replies carry a secret (a PIN).
 	// Never shown by the API, and wiped from the store once the job is over.
 	Sensitive bool
+	// Paging follows an answer over several screens; nil: one screen per
+	// request. Extract is a pattern whose named groups, found in Responses,
+	// are the job's fields.
+	Paging  *policy.Paging
+	Extract string
 
 	// Priority orders the queue; higher is considered first. It is ordering,
 	// not preemption — an assigned job is never recalled.

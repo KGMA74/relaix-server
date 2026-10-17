@@ -34,6 +34,24 @@ type Automation struct {
 	Actions    []Action    `json:"actions"`
 	// Limits cap runs per hour and day, counted on the phone.
 	Limits Limits `json:"limits"`
+	// Schedule, when set, runs the automation by itself at intervals rather
+	// than on received SMS; it then has no senders and no pattern.
+	Schedule *Schedule `json:"schedule,omitempty"`
+}
+
+// Schedule runs an automation every EveryMinutes, inside Window.
+type Schedule struct {
+	EveryMinutes int          `json:"everyMinutes"`
+	Window       Availability `json:"window"`
+}
+
+// Paging follows a USSD answer over several screens: while the last one
+// contains Marker ("Suivant"), Reply ("n") is typed for the next, up to
+// MaxPages screens.
+type Paging struct {
+	Marker   string `json:"marker"`
+	Reply    string `json:"reply"`
+	MaxPages int    `json:"maxPages,omitempty"`
 }
 
 // Condition tests one field.
@@ -52,6 +70,12 @@ type Action struct {
 	Body   string `json:"body,omitempty"`
 	Secret string `json:"secret,omitempty"`
 	Code   string `json:"code,omitempty"`
+	// A USSD action: menus answered, screens followed, and a pattern whose
+	// named groups, found in what the network displayed, become fields for
+	// the actions after it.
+	Replies []string `json:"replies,omitempty"`
+	Paging  *Paging  `json:"paging,omitempty"`
+	Extract string   `json:"extract,omitempty"`
 }
 
 // Action types.
@@ -68,8 +92,12 @@ var (
 	numericOps = []string{"gt", "gte", "lt", "lte"}
 )
 
-// Builtins are the fields every automation has, pattern or not.
+// Builtins are the fields every automation run on a received SMS has,
+// pattern or not.
 var Builtins = []string{"sender", "body", "receivedAt", "sim"}
+
+// ScheduledBuiltins are those of an automation run on a schedule.
+var ScheduledBuiltins = []string{"now", "sim"}
 
 // PinField is the placeholder for the SIM's PIN, resolved on the phone, and
 // only in a USSD action.
@@ -84,6 +112,12 @@ const (
 	maxReplyLen       = 480
 	maxWebhookBodyLen = 4000
 	maxSecretLen      = 128
+	maxReplies        = 10
+	maxReplyText      = 64
+	maxPages          = 10
+	defaultPages      = 3
+	minScheduleMins   = 15
+	maxScheduleMins   = 7 * 24 * 60
 )
 
 var (
@@ -96,8 +130,26 @@ var (
 // Fields lists what an automation's templates and conditions may use: the
 // builtins, then the pattern's named groups.
 func (a Automation) Fields() []string {
-	out := slices.Clone(Builtins)
-	for _, m := range groupName.FindAllStringSubmatch(a.Pattern, -1) {
+	if a.Schedule != nil {
+		return slices.Clone(ScheduledBuiltins)
+	}
+	return appendGroups(slices.Clone(Builtins), a.Pattern)
+}
+
+// FieldsAt is what action i may use: Fields, and the groups the USSD
+// actions before it extract.
+func (a Automation) FieldsAt(i int) []string {
+	out := a.Fields()
+	for _, act := range a.Actions[:min(i, len(a.Actions))] {
+		if act.Type == ActionUSSD {
+			out = appendGroups(out, act.Extract)
+		}
+	}
+	return out
+}
+
+func appendGroups(out []string, pattern string) []string {
+	for _, m := range groupName.FindAllStringSubmatch(pattern, -1) {
 		if !slices.Contains(out, m[1]) {
 			out = append(out, m[1])
 		}
@@ -105,10 +157,34 @@ func (a Automation) Fields() []string {
 	return out
 }
 
+// Extract searches what a USSD code displayed — every screen joined by a
+// line break — and returns the pattern's named groups. Nothing found, or no
+// pattern: an empty map and false. It is the reference the phone mirrors.
+func Extract(pattern string, screens []string) (map[string]string, bool) {
+	if pattern == "" {
+		return map[string]string{}, false
+	}
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		return map[string]string{}, false
+	}
+	m := re.FindStringSubmatch(strings.Join(screens, "\n"))
+	if m == nil {
+		return map[string]string{}, false
+	}
+	out := map[string]string{}
+	for i, name := range re.SubexpNames() {
+		if name != "" {
+			out[name] = strings.TrimSpace(m[i])
+		}
+	}
+	return out, true
+}
+
 // Match reports whether a message triggers the automation, and the fields it
 // yields. It is the reference the phone and the dashboard's tester mirror.
 func (a Automation) Match(sender, body, receivedAt string, sim int32) (map[string]string, bool) {
-	if !a.Enabled || (a.SubscriptionID != 0 && a.SubscriptionID != sim) {
+	if !a.Enabled || a.Schedule != nil || (a.SubscriptionID != 0 && a.SubscriptionID != sim) {
 		return nil, false
 	}
 	if len(a.Senders) > 0 && !slices.ContainsFunc(a.Senders, func(s string) bool {
@@ -219,6 +295,24 @@ func normalizeAutomations(in []Automation) []Automation {
 			act.To = strings.TrimSpace(act.To)
 			act.URL = strings.TrimSpace(act.URL)
 			act.Code = strings.TrimSpace(act.Code)
+			act.Extract = strings.TrimSpace(act.Extract)
+			act.Replies = slices.Clone(act.Replies)
+			for k := range act.Replies {
+				act.Replies[k] = strings.TrimSpace(act.Replies[k])
+			}
+			if act.Paging != nil {
+				p := *act.Paging
+				p.Marker, p.Reply = strings.TrimSpace(p.Marker), strings.TrimSpace(p.Reply)
+				act.Paging = &p
+				if p.Marker == "" && p.Reply == "" {
+					act.Paging = nil
+				}
+			}
+		}
+		if a.Schedule != nil {
+			sch := *a.Schedule
+			sch.Window = normalizeAvailability(sch.Window)
+			a.Schedule = &sch
 		}
 	}
 	return list
@@ -255,19 +349,19 @@ func (a Automation) validate(where string) error {
 	if err := validateInbound(Inbound{Senders: a.Senders}); err != nil {
 		return invalid("%s: %v", where, err)
 	}
-	if len(a.Pattern) > maxPatternLen {
-		return invalid("%s.pattern: longer than %d characters", where, maxPatternLen)
+	if a.Schedule != nil {
+		if len(a.Senders) > 0 || a.Pattern != "" {
+			return invalid("%s: a scheduled automation has no senders and no pattern: no SMS starts it", where)
+		}
+		if a.Schedule.EveryMinutes < minScheduleMins || a.Schedule.EveryMinutes > maxScheduleMins {
+			return invalid("%s.schedule.everyMinutes: from %d (Android's shortest period) to %d", where, minScheduleMins, maxScheduleMins)
+		}
+		if err := validateAvailability(a.Schedule.Window, where+".schedule.window"); err != nil {
+			return err
+		}
 	}
-	if a.Pattern != "" {
-		if _, err := regexp.Compile(a.Pattern); err != nil {
-			return invalid("%s.pattern: %v", where, err)
-		}
-		for _, m := range groupName.FindAllStringSubmatch(a.Pattern, -1) {
-			if !fieldName.MatchString(m[1]) || slices.Contains(Builtins, m[1]) || m[1] == PinField {
-				return invalid("%s.pattern: group name %q must be a letter then letters or digits, and not %s or %s",
-					where, m[1], strings.Join(Builtins, ", "), PinField)
-			}
-		}
+	if err := validatePattern(a.Pattern, where+".pattern", Builtins); err != nil {
+		return err
 	}
 	fields := a.Fields()
 	if len(a.Conditions) > maxConditions {
@@ -292,11 +386,41 @@ func (a Automation) validate(where string) error {
 		return invalid("%s.actions: 1 to %d", where, maxActions)
 	}
 	for j, act := range a.Actions {
-		if err := act.validate(fmt.Sprintf("%s.actions[%d]", where, j), fields); err != nil {
+		aw := fmt.Sprintf("%s.actions[%d]", where, j)
+		known := a.FieldsAt(j)
+		if err := act.validate(aw, known); err != nil {
 			return err
+		}
+		if act.Type == ActionUSSD && act.Extract != "" {
+			// What it extracts must not shadow a field the run already has.
+			if err := validatePattern(act.Extract, aw+".extract", known); err != nil {
+				return err
+			}
 		}
 	}
 	return validateLimits(a.Limits, where+".limits")
+}
+
+// validatePattern checks a regular expression whose named groups become
+// fields: it compiles, and each name is a letter then letters or digits, not
+// one of taken nor {pin}.
+func validatePattern(pattern, where string, taken []string) error {
+	if pattern == "" {
+		return nil
+	}
+	if len(pattern) > maxPatternLen {
+		return invalid("%s: longer than %d characters", where, maxPatternLen)
+	}
+	if _, err := regexp.Compile(pattern); err != nil {
+		return invalid("%s: %v", where, err)
+	}
+	for _, m := range groupName.FindAllStringSubmatch(pattern, -1) {
+		if !fieldName.MatchString(m[1]) || slices.Contains(taken, m[1]) || m[1] == PinField {
+			return invalid("%s: group name %q must be a letter then letters or digits, and not %s or %s",
+				where, m[1], strings.Join(taken, ", "), PinField)
+		}
+	}
+	return nil
 }
 
 func (act Action) validate(where string, fields []string) error {
@@ -353,6 +477,25 @@ func (act Action) validate(where string, fields []string) error {
 		if !ussdTemplate.MatchString(act.Code) {
 			return invalid("%s.code: a USSD code, fields allowed: *144*2*1*{from}*{amount}*{pin}#", where)
 		}
+		if len(act.Replies) > maxReplies {
+			return invalid("%s.replies: at most %d", where, maxReplies)
+		}
+		for k, r := range act.Replies {
+			if r == "" || len([]rune(r)) > maxReplyText {
+				return invalid("%s.replies[%d]: 1 to %d characters", where, k, maxReplyText)
+			}
+			if err := uses(fmt.Sprintf("replies[%d]", k), r, true); err != nil {
+				return err
+			}
+		}
+		if p := act.Paging; p != nil {
+			if p.Marker == "" || len([]rune(p.Marker)) > 40 || p.Reply == "" || len([]rune(p.Reply)) > 8 {
+				return invalid("%s.paging: a marker (e.g. Suivant, 40 characters at most) and the reply that shows the next screen (e.g. n)", where)
+			}
+			if p.MaxPages < 0 || p.MaxPages > maxPages {
+				return invalid("%s.paging.maxPages: 0 (%d) to %d", where, defaultPages, maxPages)
+			}
+		}
 		return uses("code", act.Code, true)
 	}
 	return invalid("%s.type: one of forward, reply_sms, webhook, ussd", where)
@@ -370,6 +513,9 @@ func automationsToProto(list []Automation) []*v1.Automation {
 			Id: a.ID, Name: a.Name, Description: a.Description, Enabled: a.Enabled, SubscriptionId: a.SubscriptionID,
 			Senders: a.Senders, Pattern: a.Pattern, Limits: limitsToProto(a.Limits),
 		}
+		if a.Schedule != nil {
+			m.Schedule = &v1.AutomationSchedule{EveryMinutes: int32(a.Schedule.EveryMinutes), Window: availabilityToProto(a.Schedule.Window)}
+		}
 		for _, c := range a.Conditions {
 			m.Conditions = append(m.Conditions, &v1.AutomationCondition{Field: c.Field, Op: c.Op, Value: c.Value})
 		}
@@ -383,7 +529,9 @@ func automationsToProto(list []Automation) []*v1.Automation {
 			case ActionWebhook:
 				pa.Action = &v1.AutomationAction_Webhook{Webhook: &v1.WebhookAction{Url: act.URL, Body: act.Body, Secret: act.Secret}}
 			case ActionUSSD:
-				pa.Action = &v1.AutomationAction_Ussd{Ussd: &v1.UssdAction{Code: act.Code}}
+				pa.Action = &v1.AutomationAction_Ussd{Ussd: &v1.UssdAction{
+					Code: act.Code, Replies: act.Replies, Paging: PagingToProto(act.Paging), Extract: act.Extract,
+				}}
 			}
 			m.Actions = append(m.Actions, pa)
 		}
@@ -399,6 +547,9 @@ func automationsFromProto(list []*v1.Automation) []Automation {
 			ID: m.GetId(), Name: m.GetName(), Description: m.GetDescription(), Enabled: m.GetEnabled(), SubscriptionID: m.GetSubscriptionId(),
 			Senders: m.GetSenders(), Pattern: m.GetPattern(), Limits: limitsFromProto(m.GetLimits()),
 		}
+		if sch := m.GetSchedule(); sch != nil {
+			a.Schedule = &Schedule{EveryMinutes: int(sch.GetEveryMinutes()), Window: availabilityFromProto(sch.GetWindow())}
+		}
 		for _, c := range m.GetConditions() {
 			a.Conditions = append(a.Conditions, Condition{Field: c.GetField(), Op: c.GetOp(), Value: c.GetValue()})
 		}
@@ -411,7 +562,10 @@ func automationsFromProto(list []*v1.Automation) []Automation {
 			case *v1.AutomationAction_Webhook:
 				a.Actions = append(a.Actions, Action{Type: ActionWebhook, URL: x.Webhook.GetUrl(), Body: x.Webhook.GetBody(), Secret: x.Webhook.GetSecret()})
 			case *v1.AutomationAction_Ussd:
-				a.Actions = append(a.Actions, Action{Type: ActionUSSD, Code: x.Ussd.GetCode()})
+				a.Actions = append(a.Actions, Action{
+					Type: ActionUSSD, Code: x.Ussd.GetCode(), Replies: x.Ussd.GetReplies(),
+					Paging: pagingFromProto(x.Ussd.GetPaging()), Extract: x.Ussd.GetExtract(),
+				})
 			}
 		}
 		out = append(out, a)
@@ -433,4 +587,32 @@ func (p Policy) Automation(id string) (Automation, bool) {
 		}
 	}
 	return Automation{}, false
+}
+
+// PagingToProto is p on the wire; nil stays nil.
+func PagingToProto(p *Paging) *v1.UssdPaging {
+	if p == nil {
+		return nil
+	}
+	return &v1.UssdPaging{Marker: p.Marker, Reply: p.Reply, MaxPages: int32(p.MaxPages)}
+}
+
+func pagingFromProto(m *v1.UssdPaging) *Paging {
+	if m == nil || (m.GetMarker() == "" && m.GetReply() == "") {
+		return nil
+	}
+	return &Paging{Marker: m.GetMarker(), Reply: m.GetReply(), MaxPages: int(m.GetMaxPages())}
+}
+
+// ValidatePaging checks paging as a USSD job carries it.
+func ValidatePaging(p *Paging) error {
+	if p == nil {
+		return nil
+	}
+	return Action{Type: ActionUSSD, Code: "*1#", Paging: p}.validate("paging", nil)
+}
+
+// ValidateExtract checks an extraction pattern as a USSD job carries it.
+func ValidateExtract(pattern string) error {
+	return validatePattern(pattern, "extract", nil)
 }

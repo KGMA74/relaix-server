@@ -20,15 +20,15 @@ const jobColumns = `
 	status, error_code, error_message, parts_sent, attempts,
 	callback_url, callback_attempts, callback_next_at, callback_delivered_at, callback_last_error,
 	created_at, updated_at, assigned_at, completed_at,
-	kind, replies, responses, sensitive`
+	kind, replies, responses, sensitive, paging, extract`
 
 func (j jobStore) Create(ctx context.Context, in *store.Job) (*store.Job, error) {
 	const q = `
 		INSERT INTO jobs (
 			recipient, body, mode, priority, scheduled_at, expires_at,
 			requested_device_id, subscription_id, callback_url, callback_next_at,
-			account_id, kind, replies, sensitive
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+			account_id, kind, replies, sensitive, paging, extract
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
 		RETURNING ` + jobColumns
 
 	row := j.q.QueryRow(ctx, q,
@@ -36,6 +36,7 @@ func (j jobStore) Create(ctx context.Context, in *store.Job) (*store.Job, error)
 		in.ScheduledAt, in.ExpiresAt, in.RequestedDeviceID, in.SubscriptionID,
 		in.Callback.URL, in.Callback.NextAttemptAt,
 		store.AccountOrDefault(in.AccountID), string(kindOrSMS(in.Kind)), nonNil(in.Replies), in.Sensitive,
+		in.Paging, in.Extract,
 	)
 	job, err := scanJob(row)
 	return job, translate(err)
@@ -452,7 +453,7 @@ func scanJob(row scanner) (*store.Job, error) {
 		&j.Callback.URL, &j.Callback.Attempts, &j.Callback.NextAttemptAt,
 		&j.Callback.DeliveredAt, &j.Callback.LastError,
 		&j.CreatedAt, &j.UpdatedAt, &j.AssignedAt, &j.CompletedAt,
-		&kind, &j.Replies, &j.Responses, &j.Sensitive,
+		&kind, &j.Replies, &j.Responses, &j.Sensitive, &j.Paging, &j.Extract,
 	)
 	if err != nil {
 		return nil, err

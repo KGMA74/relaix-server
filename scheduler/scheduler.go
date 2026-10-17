@@ -522,7 +522,7 @@ func (s *Scheduler) decideUSSD(
 	if d != nil {
 		need := store.CapUSSD
 		switch {
-		case len(job.Replies) > 0:
+		case len(job.Replies) > 0 || job.Paging != nil:
 			need = store.CapUSSDMenu
 		case strings.Contains(job.Body, store.PinPlaceholder):
 			need = store.CapUSSDPin
@@ -688,6 +688,7 @@ func toUSSDProto(j *store.Job, sub int32) *v1.UssdJob {
 		Code:           j.Body,
 		SubscriptionId: sub,
 		Replies:        j.Replies,
+		Paging:         policy.PagingToProto(j.Paging),
 	}
 	if j.ExpiresAt != nil {
 		msg.ExpiresAt = timestamppb.New(*j.ExpiresAt)

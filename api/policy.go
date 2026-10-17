@@ -57,7 +57,7 @@ func (s *Server) handlePutPolicy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.pushPolicy(r, id, stored)
+	s.pushPolicy(r, id, stored, dev.Can(store.CapAutomationSchedule))
 	s.opts.Logger.Info("device rules updated", "device_id", id, "version", stored.Version)
 	s.opts.Events.Publish(events.Event{Type: events.DeviceUpdated, DeviceID: id.String(), AccountID: dev.AccountID})
 	writeJSON(w, http.StatusOK, stored)
@@ -65,11 +65,11 @@ func (s *Server) handlePutPolicy(w http.ResponseWriter, r *http.Request) {
 
 // pushPolicy sends the stored rules to the phone if it is connected, so the
 // screen on the phone shows them without waiting for a reconnect.
-func (s *Server) pushPolicy(r *http.Request, id uuid.UUID, p policy.Policy) {
+func (s *Server) pushPolicy(r *http.Request, id uuid.UUID, p policy.Policy, scheduling bool) {
 	err := s.hub.Send(r.Context(), id, &v1.ServerMessage{
 		MessageId: uuid.NewString(),
 		SentAt:    timestamppb.New(s.opts.Now()),
-		Payload:   &v1.ServerMessage_Policy{Policy: policy.ToProto(p)},
+		Payload:   &v1.ServerMessage_Policy{Policy: policy.ToProtoFor(p, scheduling)},
 	})
 	if err != nil && !errors.Is(err, hub.ErrNotConnected) {
 		s.opts.Logger.Warn("could not push rules to the device", "device_id", id, "err", err)

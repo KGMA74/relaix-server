@@ -69,8 +69,10 @@ type Payload struct {
 	ErrorMessage string  `json:"errorMessage,omitempty"`
 	CompletedAt  *string `json:"completedAt,omitempty"`
 	Attempt      int     `json:"attempt"`
-	// Responses is what the network displayed, for a USSD job.
-	Responses []string `json:"responses,omitempty"`
+	// Responses is what the network displayed, for a USSD job, and Fields
+	// what its extract pattern found there.
+	Responses []string          `json:"responses,omitempty"`
+	Fields    map[string]string `json:"fields,omitempty"`
 }
 
 // Options configures a Notifier.
@@ -255,6 +257,7 @@ func payloadFor(job *store.Job) Payload {
 		Kind:         string(job.Kind),
 		Status:       string(job.Status),
 		Responses:    job.Responses,
+		Fields:       extracted(job),
 		Recipient:    job.Recipient,
 		PartsSent:    job.PartsSent,
 		ErrorCode:    job.ErrorCode,
@@ -315,4 +318,13 @@ func inboundPayloadFor(m *store.InboundMessage) InboundPayload {
 		p.DeviceID = &id
 	}
 	return p
+}
+
+// extracted is what a USSD job's extract pattern finds in its responses.
+func extracted(job *store.Job) map[string]string {
+	if job.Extract == "" || len(job.Responses) == 0 {
+		return nil
+	}
+	fields, _ := policy.Extract(job.Extract, job.Responses)
+	return fields
 }
