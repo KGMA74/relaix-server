@@ -22,6 +22,10 @@ type Principal struct {
 	// operator of a self-hosted gateway holds it — there is only one account
 	// to see — and so does whoever administers a gateway shared by several.
 	AllAccounts bool
+
+	// Scopes limits what the principal may do to these permissions (see
+	// AllScopes). Nil: everything, as the operator and a signed-in person.
+	Scopes []string
 }
 
 // Scope is what the principal may see.
@@ -119,6 +123,10 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 		p, err := s.opts.Authenticator.Authenticate(r)
 		if err != nil {
 			writeError(w, http.StatusUnauthorized, "unauthorized", err.Error())
+			return
+		}
+		if need, ok := permitted(p, r); !ok {
+			writeError(w, http.StatusForbidden, "insufficient_scope", "this key does not have the "+need+" permission")
 			return
 		}
 		next.ServeHTTP(w, r.WithContext(WithPrincipal(r.Context(), p)))

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -97,10 +98,10 @@ func TestSharedKeyIsTheOperator(t *testing.T) {
 	}
 	r.Header.Set("Authorization", "Bearer k")
 	p, err := SharedKey("k").Authenticate(r)
-	if err != nil || p != operator {
+	if err != nil || !reflect.DeepEqual(p, operator) {
 		t.Errorf("right key: %+v, %v", p, err)
 	}
-	if p, err := SharedKey("").Authenticate(httptest.NewRequest(http.MethodGet, "/", nil)); err != nil || p != operator {
+	if p, err := SharedKey("").Authenticate(httptest.NewRequest(http.MethodGet, "/", nil)); err != nil || !reflect.DeepEqual(p, operator) {
 		t.Errorf("no key configured: %+v, %v", p, err)
 	}
 }
