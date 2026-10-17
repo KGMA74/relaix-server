@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { BatteryCharging, BatteryMedium, Check, Copy, Download, Loader2, MessageSquare, Plus, Power, RefreshCw, Send, Signal, SlidersHorizontal, Smartphone, Trash2 } from "lucide-react";
+import { BatteryCharging, BatteryMedium, Check, ChevronDown, Copy, Download, Loader2, MessageSquare, Plus, Power, RefreshCw, Send, Signal, SlidersHorizontal, Smartphone, Trash2 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
@@ -431,26 +431,34 @@ const APP_URL = "https://github.com/KGMA74/relaix-agent/releases/latest/download
 /** Getting the app: a link from this computer, a QR code from the phone. */
 function AppDownload() {
   return (
-    <div className="flex items-center gap-4 rounded-md border bg-muted/40 p-3">
-      {/* The QR of APP_URL, generated once: the link always serves the latest. */}
-      <img src="/ui/app-download-qr.png" alt="QR code de téléchargement de l'app" className="size-24 shrink-0 rounded-sm bg-white p-1" />
-      <div className="flex min-w-0 flex-col gap-1.5">
-        <span className="text-sm font-medium">L'app Android Relaix</span>
-        <span className="text-xs text-muted-foreground">
-          Scannez ce code avec le téléphone, ou téléchargez l'APK. Android demande d'autoriser l'installation depuis le navigateur.
-        </span>
-        <a href={APP_URL} className="btn-secondary h-8 self-start" rel="noreferrer">
-          <Download className="size-4" aria-hidden />
-          Télécharger l'app
-        </a>
+    // Folded by default: the enrollment QR below is the one to scan first,
+    // and two codes side by side get mixed up.
+    <details className="group rounded-md border bg-muted/40">
+      <summary className="flex cursor-pointer list-none items-center gap-3 px-3 py-2.5 [&::-webkit-details-marker]:hidden">
+        <Download className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+        <span className="flex-1 text-sm font-medium">L'app Android Relaix n'est pas encore installée ?</span>
+        <ChevronDown className="size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" aria-hidden />
+      </summary>
+      <div className="flex items-center gap-4 border-t px-3 py-3">
+        {/* The QR of APP_URL, generated once: the link always serves the latest. */}
+        <img src="/ui/app-download-qr.png" alt="QR code de téléchargement de l'app" className="size-24 shrink-0 rounded-sm bg-white p-1" />
+        <div className="flex min-w-0 flex-col gap-1.5">
+          <span className="text-xs text-muted-foreground">
+            Scannez ce code avec le téléphone, ou téléchargez l'APK. Android demande d'autoriser l'installation depuis le navigateur.
+          </span>
+          <a href={APP_URL} className="btn-secondary h-8 self-start" rel="noreferrer">
+            <Download className="size-4" aria-hidden />
+            Télécharger l'app
+          </a>
+        </div>
       </div>
-    </div>
+    </details>
   );
 }
 
 function EnrollSteps() {
   const steps: [string, string][] = [
-    ["Installer l'application Relaix sur le téléphone", "Android 8 ou plus, avec une SIM locale. Lien et QR ci-dessous."],
+    ["Installer l'application Relaix sur le téléphone", "Android 8 ou plus, avec une SIM locale. Le lien de téléchargement est ci-dessous."],
     ["Dans l'app, scanner ce code", "Pas de caméra ? Copiez la configuration et collez-la dans l'app."],
     ["Autoriser l'envoi de SMS et garder l'app active", "Désactivez l'optimisation de batterie pour Relaix."],
   ];
