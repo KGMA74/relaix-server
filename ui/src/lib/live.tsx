@@ -1,6 +1,6 @@
 import { useQueryClient, type QueryKey } from "@tanstack/react-query";
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
-import { currentApiKey, notifyUnauthorized } from "../api/client";
+import { API_BASE, currentApiKey, notifyUnauthorized } from "../api/client";
 
 /** One change announced by GET /events — see events.Event on the server. */
 export interface LiveEvent {
@@ -90,7 +90,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       const key = currentApiKey();
       setStatus((s) => (s === "live" ? "connecting" : s));
       try {
-        const res = await fetch("/events", {
+        const res = await fetch(API_BASE + "/events", {
           // Without a key, the browser's own credentials (a session cookie) go instead.
           headers: key ? { Authorization: `Bearer ${key}`, Accept: "text/event-stream" } : { Accept: "text/event-stream" },
           signal: abort.signal,

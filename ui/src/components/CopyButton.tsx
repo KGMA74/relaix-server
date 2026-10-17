@@ -24,8 +24,8 @@ export function CopyButton({ text, label, dark }: { text: string; label: string;
         "inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border px-2 text-xs font-medium transition-colors",
         dark
           ? copied
-            ? "border-[#62c08d]/35 bg-[#62c08d]/10 text-[#62c08d]"
-            : "border-[#3d3c37] bg-[#22221f] text-[#9c978c] hover:text-white"
+            ? "border-success-line bg-success-soft text-success"
+            : "border-input bg-card text-muted-foreground hover:text-foreground"
           : "text-muted-foreground hover:bg-accent hover:text-foreground",
       )}
     >

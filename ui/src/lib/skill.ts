@@ -3,7 +3,8 @@
  * any agent that reads skills — to integrate this gateway into a codebase. The
  * address is this gateway's; the key stays an environment variable.
  */
-export function relaixSkill(base: string): string {
+export function relaixSkill(origin: string): string {
+  const base = origin + "/api/v1";
   return `---
 name: relaix
 description: Integrate the Relaix SMS gateway into an application — send SMS, run USSD codes, read received SMS, verify webhooks, install automations. Use when code must send or receive SMS or mobile-money USSD through the user's own Android phones.
@@ -14,7 +15,7 @@ description: Integrate the Relaix SMS gateway into an application — send SMS, 
 Relaix sends SMS and runs USSD codes from the user's own Android phones, and
 runs automations on them when an SMS arrives.
 
-- Base URL: ${base}
+- Base URL: ${base} (every path below is relative to it)
 - Auth: \`Authorization: Bearer $RELAIX_API_KEY\` on every request. Read the key
   from the environment; never write it in code, tests or logs.
 - Bodies are JSON; errors are \`{"error": {"code", "message"}}\`.
@@ -73,6 +74,6 @@ back, read from \`GET /devices\`). \`GET /automations/runs\` shows what they did
   without a cap, and confirm before bulk sends.
 - Keep the gateway's base URL and the key in configuration.
 - For an assistant to act on the gateway directly, it can also be connected
-  as an MCP server at ${base}/mcp.
+  as an MCP server at ${origin}/mcp.
 `;
 }

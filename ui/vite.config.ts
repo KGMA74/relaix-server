@@ -6,7 +6,7 @@ import { defineConfig } from "vite";
 // The API routes the dashboard calls. In development Vite serves the app and
 // forwards these to a gatewayd running locally; in production both come from
 // the same gatewayd, so the app always calls its own origin.
-const apiRoutes = ["/send", "/ussd", "/inbox", "/jobs", "/devices", "/stats", "/admin", "/events", "/countries", "/ui-config", "/healthz", "/readyz"];
+const apiRoutes = ["/api", "/send", "/ussd", "/inbox", "/jobs", "/devices", "/stats", "/admin", "/events", "/countries", "/ui-config", "/healthz", "/readyz"];
 const target = process.env.RELAIX_API ?? "http://localhost:8080";
 
 export default defineConfig({

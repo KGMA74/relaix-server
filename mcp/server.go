@@ -62,6 +62,9 @@ type Options struct {
 	// Name is what the sign-in page and the assistant call the gateway.
 	Name string
 
+	// Tools are added to the gateway's own.
+	Tools []Tool
+
 	Logger *slog.Logger
 	Now    func() time.Time
 }
@@ -177,7 +180,7 @@ func (s *Server) serveMCP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	key, ok := s.keyFor(r)
+	key, principal, ok := s.keyFor(r)
 	if !ok {
 		// resource_metadata starts OAuth discovery in clients that cannot
 		// send a fixed key, like claude.ai.
@@ -202,27 +205,28 @@ func (s *Server) serveMCP(w http.ResponseWriter, r *http.Request) {
 			Error: &rpcError{Code: codeInvalidRequest, Message: "invalid JSON-RPC request"}})
 		return
 	}
-	result, rerr := s.dispatch(r.Context(), &caller{api: s.opts.API, key: key}, req)
+	result, rerr := s.dispatch(r.Context(), &caller{api: s.opts.API, key: key, principal: principal}, req)
 	writeRPC(w, rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: result, Error: rerr})
 }
 
 // keyFor is the API key a request to /mcp acts with: the one inside an OAuth
 // access token, or the bearer token itself. Either way the gateway's
 // authenticator must accept it — an open gateway accepts none at all.
-func (s *Server) keyFor(r *http.Request) (string, bool) {
+func (s *Server) keyFor(r *http.Request) (string, api.Principal, bool) {
 	tok, _ := api.BearerToken(r)
 	key := tok
 	if strings.HasPrefix(tok, accessPrefix) {
 		var c tokenClaims
 		if s.seal.open(kindAccess, accessPrefix, tok, &c) != nil || s.opts.Now().Unix() > c.Expires {
-			return "", false
+			return "", api.Principal{}, false
 		}
 		key = c.Key
 	}
-	if _, err := s.opts.Authenticator.Authenticate(keyRequest(r.Context(), key)); err != nil {
-		return "", false
+	p, err := s.opts.Authenticator.Authenticate(keyRequest(r.Context(), key))
+	if err != nil {
+		return "", api.Principal{}, false
 	}
-	return key, true
+	return key, p, true
 }
 
 // keyRequest is a bare request carrying key, for the authenticator: no
@@ -275,7 +279,13 @@ func (s *Server) dispatch(ctx context.Context, c *caller, req rpcRequest) (any, 
 		return map[string]any{}, nil
 
 	case "tools/list":
-		return map[string]any{"tools": toolDefinitions}, nil
+		list := append([]obj(nil), toolDefinitions...)
+		for _, t := range s.opts.Tools {
+			if t.visible(c) {
+				list = append(list, t.definition())
+			}
+		}
+		return map[string]any{"tools": list}, nil
 
 	case "tools/call":
 		var p struct {
@@ -289,6 +299,11 @@ func (s *Server) dispatch(ctx context.Context, c *caller, req rpcRequest) (any, 
 			p.Arguments = json.RawMessage("{}")
 		}
 		tool, ok := tools[p.Name]
+		for _, t := range s.opts.Tools {
+			if !ok && t.Name == p.Name && t.visible(c) {
+				tool, ok = func(ctx context.Context, c *caller, args json.RawMessage) (any, error) { return t.Call(ctx, c, args) }, true
+			}
+		}
 		if !ok {
 			return nil, &rpcError{Code: codeInvalidParams, Message: "unknown tool: " + p.Name}
 		}
@@ -340,8 +355,9 @@ func errorf(format string, args ...any) error { return userError{fmt.Sprintf(for
 
 // caller makes API requests with one key.
 type caller struct {
-	api http.Handler
-	key string
+	api       http.Handler
+	key       string
+	principal api.Principal
 }
 
 // do sends a request to the API and decodes a 2xx answer into out (when not

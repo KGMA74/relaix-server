@@ -183,7 +183,31 @@ func (s *Server) Handler() http.Handler {
 	// Ordered outermost first: recovery has to wrap logging so a panic is still
 	// logged with its request id, and authentication runs inside both so
 	// rejected requests are recorded too.
-	return s.recover(s.logRequests(s.authenticate(mux)))
+	return versioned(s.recover(s.logRequests(s.authenticate(mux))))
+}
+
+// APIPrefix is where the API is published: /api/v1/send, /api/v1/jobs… The
+// same routes still answer without it, for integrations written before; new
+// ones, the documentation and the dashboard use the prefix.
+const APIPrefix = "/api/v1"
+
+// versioned serves the API under APIPrefix as at the root: the prefix is cut
+// before routing, so authentication, permissions and the routes an embedding
+// program adds all see the same path either way.
+func versioned(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if rest, ok := strings.CutPrefix(r.URL.Path, APIPrefix); ok && (rest == "" || rest[0] == '/') {
+			r2 := r.Clone(r.Context())
+			r2.URL.Path = rest
+			if r2.URL.Path == "" {
+				r2.URL.Path = "/"
+			}
+			r2.URL.RawPath = ""
+			h.ServeHTTP(w, r2)
+			return
+		}
+		h.ServeHTTP(w, r)
+	})
 }
 
 // publicPaths bypass authentication. The probes: an orchestrator's health

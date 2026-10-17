@@ -2,6 +2,7 @@ import { ArrowRight, Download } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { PageHeader } from "../components/common";
+import { API_BASE } from "../api/client";
 import { CopyButton } from "../components/CopyButton";
 import { relaixSkill } from "../lib/skill";
 import { cn } from "@/lib/utils";
@@ -24,7 +25,8 @@ const SECTIONS = [
 export function IntegrationPage() {
   // The API is served by the same gatewayd as this page, so its address is
   // this page's origin.
-  const base = window.location.origin;
+  const origin = window.location.origin;
+  const base = origin + API_BASE;
   const active = useActiveSection();
   // A link from another page (/integration#mcp): the router does not scroll to the anchor itself.
   useEffect(() => {
@@ -345,7 +347,7 @@ function verify(secret, timestamp, rawBody, header) {
           <Section id="mcp" title="Assistants IA — MCP">
             <p>
               La passerelle est un serveur <a className="underline decoration-foreground/30 underline-offset-4 hover:decoration-foreground" href="https://modelcontextprotocol.io">MCP</a> à{" "}
-              <code>{base}/mcp</code> : un assistant (Claude, ou tout client MCP) y trouve des outils pour lister les téléphones, envoyer des
+              <code>{origin}/mcp</code> : un assistant (Claude, ou tout client MCP) y trouve des outils pour lister les téléphones, envoyer des
               SMS, lancer des codes USSD, lire les SMS reçus, régler les règles des téléphones (horaires, plafonds, pays, SMS transmis) et écrire
               les automatisations — décrivez-lui en français ce que vous voulez. Il
               n'a que les droits de la clé utilisée : créez-en une pour lui, la révoquer le déconnecte.
@@ -353,10 +355,10 @@ function verify(secret, timestamp, rawBody, header) {
             <p>
               <strong>Claude Code</strong> (ou tout client qui envoie un en-tête) :
             </p>
-            <Code>{`claude mcp add --transport http relaix ${base}/mcp \\
+            <Code>{`claude mcp add --transport http relaix ${origin}/mcp \\
   --header "Authorization: Bearer $RELAIX_API_KEY"`}</Code>
             <p>
-              <strong>claude.ai</strong> : Paramètres → Connecteurs → Ajouter un connecteur personnalisé, adresse <code>{base}/mcp</code>,
+              <strong>claude.ai</strong> : Paramètres → Connecteurs → Ajouter un connecteur personnalisé, adresse <code>{origin}/mcp</code>,
               sans identifiant client. Une page de la passerelle demande alors la clé API, une seule fois ; l'assistant reçoit des jetons
               qui se renouvellent seuls pendant 30 jours tant que la clé est valide.
             </p>
@@ -373,7 +375,7 @@ function verify(secret, timestamp, rawBody, header) {
               automatisations, avec l'adresse de cette passerelle. La clé reste une variable d'environnement.
             </p>
             <div className="flex flex-wrap items-center gap-2">
-              <button type="button" className="btn-secondary" onClick={() => download("SKILL.md", relaixSkill(base))}>
+              <button type="button" className="btn-secondary" onClick={() => download("SKILL.md", relaixSkill(origin))}>
                 <Download className="size-4" aria-hidden />
                 Télécharger SKILL.md
               </button>
@@ -385,7 +387,7 @@ function verify(secret, timestamp, rawBody, header) {
             <details className="group">
               <summary className="cursor-pointer text-[13px] font-medium underline decoration-foreground/30 underline-offset-4">Voir le fichier</summary>
               <div className="mt-2">
-                <Code>{relaixSkill(base)}</Code>
+                <Code>{relaixSkill(origin)}</Code>
               </div>
             </details>
           </Section>
@@ -500,8 +502,8 @@ function Tile({ label, children }: { label: string; children: ReactNode }) {
 /** Code stays dark in both themes: it reads as code, not as another card. */
 function Code({ children }: { children: string }) {
   return (
-    <div className="flex items-start rounded-md border border-[#2f2e2a] bg-[#10100e]">
-      <pre className="min-w-0 flex-1 overflow-x-auto p-4 font-mono text-[13px] leading-[1.7] text-[#e9e6df]">{children}</pre>
+    <div className="flex items-start rounded-md border border-border bg-code">
+      <pre className="min-w-0 flex-1 overflow-x-auto p-4 font-mono text-[13px] leading-[1.7] text-foreground">{children}</pre>
       <div className="p-2.5">
         <CopyButton text={children} label="Copier" dark />
       </div>
@@ -515,8 +517,8 @@ function Snippets({ snippets }: { snippets: Record<string, string> }) {
   const [lang, setLang] = useState(langs[0]!);
   const code = snippets[lang]!;
   return (
-    <div className="overflow-hidden rounded-md border border-[#2f2e2a] bg-[#10100e]">
-      <div className="flex items-center justify-between border-b border-[#2f2e2a] py-1.5 pr-2 pl-2.5">
+    <div className="overflow-hidden rounded-md border border-border bg-code">
+      <div className="flex items-center justify-between border-b border-border py-1.5 pr-2 pl-2.5">
         <div role="tablist" aria-label="Langage" className="flex min-w-0 gap-0.5 overflow-x-auto">
           {langs.map((l) => (
             <button
@@ -527,7 +529,7 @@ function Snippets({ snippets }: { snippets: Record<string, string> }) {
               onClick={() => setLang(l)}
               className={cn(
                 "h-7 rounded-md px-2.5 font-mono text-xs font-medium transition-colors",
-                l === lang ? "bg-[#262622] text-[#e9e6df]" : "text-[#9c978c] hover:text-[#e9e6df]",
+                l === lang ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground",
               )}
             >
               {l}
@@ -536,7 +538,7 @@ function Snippets({ snippets }: { snippets: Record<string, string> }) {
         </div>
         <CopyButton text={code} label="Copier" dark />
       </div>
-      <pre className="overflow-x-auto p-4 font-mono text-[13px] leading-[1.75] text-[#e9e6df]">{code}</pre>
+      <pre className="overflow-x-auto p-4 font-mono text-[13px] leading-[1.75] text-foreground">{code}</pre>
     </div>
   );
 }

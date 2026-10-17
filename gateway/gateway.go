@@ -70,7 +70,9 @@ type Extensions struct {
 	Routes            func(mux *http.ServeMux)
 	PublicPrefixes    []string
 	// Library replaces the built-in catalogue of automation templates.
-	Library  library.Source
+	Library library.Source
+	// MCPTools are added to the MCP server's own tools.
+	MCPTools []mcp.Tool
 	UIConfig api.UIConfig
 	// UI replaces the built-in dashboard.
 	UI fs.FS
@@ -226,6 +228,7 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger, extend Ext
 		Secret:        []byte(oauthSecret),
 		Redirects:     cfg.OAuthRedirects,
 		Name:          ext.UIConfig.Name,
+		Tools:         ext.MCPTools,
 		Logger:        logger,
 	})
 	if err != nil {

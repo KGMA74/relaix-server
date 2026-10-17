@@ -69,6 +69,9 @@
   --chart-fail: #b3261e;
   --chart-grid: #e2ded5;
 
+  /* Code samples: a shade under the card, in both themes. */
+  --code: #eeebe4;
+
   /* Nothing floats but drawers and menus. */
   --surface-shadow: none;
   --drawer-shadow: -24px 0 48px rgb(27 26 23 / 0.08);
@@ -116,6 +119,8 @@
   --chart-flight: #6b9fd3;
   --chart-fail: #e8665a;
   --chart-grid: #2a2a26;
+
+  --code: #10100e;
 
   --surface-shadow: none;
   --drawer-shadow: -24px 0 48px rgb(0 0 0 / 0.4);
@@ -185,6 +190,7 @@
   --color-chart-flight: var(--chart-flight);
   --color-chart-fail: var(--chart-fail);
   --color-chart-grid: var(--chart-grid);
+  --color-code: var(--code);
 
   --color-sidebar: var(--sidebar);
   --color-sidebar-foreground: var(--sidebar-foreground);

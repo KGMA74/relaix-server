@@ -58,6 +58,9 @@ export function setUnauthorizedHandler(fn: () => void) {
   onUnauthorized = fn;
 }
 
+/** Where the API is published (api.APIPrefix on the server). */
+export const API_BASE = "/api/v1";
+
 /** A call to the gateway, for routes the api object below does not cover. */
 export async function request<T>(method: string, path: string, body?: unknown, key?: string): Promise<T> {
   const apiKey = key ?? getApiKey() ?? memoryKey;
@@ -65,7 +68,7 @@ export async function request<T>(method: string, path: string, body?: unknown, k
   if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
   if (body !== undefined) headers["Content-Type"] = "application/json";
 
-  const res = await fetch(path, {
+  const res = await fetch(API_BASE + path, {
     method,
     headers,
     body: body === undefined ? undefined : JSON.stringify(body),
