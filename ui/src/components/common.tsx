@@ -233,7 +233,9 @@ export function Modal({
             <X className="size-4" aria-hidden />
           </SheetClose>
         </header>
-        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-5 pt-5 pb-5">{children}</div>
+        {/* No bottom padding under a footer: a sticky element stops at the padding, and the
+            content would show through below it. A form fills the drawer, so its footer sits at the foot. */}
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-5 pt-5 pb-5 has-[.modal-actions]:pb-0 [&>form]:flex [&>form]:flex-1 [&>form]:flex-col">{children}</div>
       </SheetContent>
     </Sheet>
   );
@@ -242,7 +244,7 @@ export function Modal({
 /** A drawer's buttons, kept at its foot while the content scrolls. */
 export function ModalActions({ children }: { children: ReactNode }) {
   return (
-    <div className="sticky bottom-0 -mx-5 -mb-5 mt-auto flex flex-wrap justify-end gap-2 border-t bg-popover px-5 py-3 pt-3">
+    <div className="modal-actions sticky bottom-0 z-10 -mx-5 mt-auto flex flex-wrap justify-end gap-2 border-t bg-popover px-5 py-3">
       {children}
     </div>
   );

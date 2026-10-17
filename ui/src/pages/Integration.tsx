@@ -1,7 +1,8 @@
-import { ArrowRight, Check, Copy } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { PageHeader } from "../components/common";
+import { CopyButton } from "../components/CopyButton";
 import { cn } from "@/lib/utils";
 
 /** The page's sections, in order: the table of contents is built from them. */
@@ -23,6 +24,11 @@ export function IntegrationPage() {
   // this page's origin.
   const base = window.location.origin;
   const active = useActiveSection();
+  // A link from another page (/integration#mcp): the router does not scroll to the anchor itself.
+  useEffect(() => {
+    const id = window.location.hash.slice(1);
+    if (id) document.getElementById(id)?.scrollIntoView();
+  }, []);
 
   return (
     <>
@@ -31,8 +37,8 @@ export function IntegrationPage() {
         subtitle="SMS, codes USSD, SMS reçus et automatisations depuis vos applications — ou depuis un assistant IA."
       />
 
-      <div className="flex flex-wrap-reverse items-start gap-10">
-        <div className="flex min-w-0 flex-[999_1_560px] flex-col gap-7 text-sm leading-relaxed text-foreground/85 [&_p_code]:rounded-sm [&_p_code]:bg-muted [&_p_code]:px-1.5 [&_p_code]:py-px [&_p_code]:font-mono [&_p_code]:text-[0.85em] [&_p_code]:text-foreground">
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_200px] lg:gap-10">
+        <div className="flex min-w-0 flex-col gap-7 lg:order-first text-sm leading-relaxed text-foreground/85 [&_p_code]:rounded-sm [&_p_code]:bg-muted [&_p_code]:px-1.5 [&_p_code]:py-px [&_p_code]:font-mono [&_p_code]:text-[0.85em] [&_p_code]:text-foreground">
           <div className="grid gap-3 sm:grid-cols-2">
             <Tile label="URL de base">
               <span className="flex-1 truncate font-mono text-sm font-medium text-foreground">{base}</span>
@@ -74,7 +80,10 @@ export function IntegrationPage() {
     Authorization: \`Bearer \${process.env.RELAIX_API_KEY}\`,
     "Content-Type": "application/json",
   },
-  body: JSON.stringify({ recipient: "+22670000000", body: "Votre code est 482913" }),
+  body: JSON.stringify({
+    recipient: "+22670000000",
+    body: "Votre code est 482913",
+  }),
 });
 // res.status === 202`,
                 Python: `import os, requests
@@ -82,9 +91,45 @@ export function IntegrationPage() {
 r = requests.post(
     "${base}/send",
     headers={"Authorization": f"Bearer {os.environ['RELAIX_API_KEY']}"},
-    json={"recipient": "+22670000000", "body": "Votre code est 482913"},
+    json={
+        "recipient": "+22670000000",
+        "body": "Votre code est 482913",
+    },
 )
 assert r.status_code == 202`,
+                Go: `body := strings.NewReader(\`{"recipient": "+22670000000", "body": "Votre code est 482913"}\`)
+req, _ := http.NewRequest("POST", "${base}/send", body)
+req.Header.Set("Authorization", "Bearer "+os.Getenv("RELAIX_API_KEY"))
+req.Header.Set("Content-Type", "application/json")
+
+res, err := http.DefaultClient.Do(req)
+if err != nil {
+	log.Fatal(err)
+}
+defer res.Body.Close()
+// res.StatusCode == 202`,
+                Rust: `// reqwest = { version = "0.12", features = ["blocking", "json"] }
+let res = reqwest::blocking::Client::new()
+    .post("${base}/send")
+    .bearer_auth(std::env::var("RELAIX_API_KEY")?)
+    .json(&serde_json::json!({
+        "recipient": "+22670000000",
+        "body": "Votre code est 482913",
+    }))
+    .send()?;
+assert_eq!(res.status(), 202);`,
+                Java: `var request = HttpRequest.newBuilder(URI.create("${base}/send"))
+    .header("Authorization", "Bearer " + System.getenv("RELAIX_API_KEY"))
+    .header("Content-Type", "application/json")
+    .POST(HttpRequest.BodyPublishers.ofString("""
+        {
+          "recipient": "+22670000000",
+          "body": "Votre code est 482913"
+        }"""))
+    .build();
+
+var response = HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString());
+// response.statusCode() == 202`,
               }}
             />
             <Fields
@@ -169,10 +214,21 @@ curl -X DELETE ${base}/jobs/$JOB_ID -H "Authorization: Bearer $RELAIX_API_KEY"`}
             <Code>{`{
   "event": "sms.received",
   "data": {
-    "messageId": "…", "deviceId": "…", "subscriptionId": 2,
-    "sender": "OrangeMoney", "body": "Vous avez recu 5 000 FCFA de 70123456…",
-    "receivedAt": "2026-10-16T09:12:00Z", "attempt": 1,
-    "automationId": "…", "fields": {"amount": "5 000", "from": "70123456"}, "numbers": {"amount": 5000}
+    "messageId": "…",
+    "deviceId": "…",
+    "subscriptionId": 2,
+    "sender": "OrangeMoney",
+    "body": "Vous avez recu 5 000 FCFA de 70123456…",
+    "receivedAt": "2026-10-16T09:12:00Z",
+    "attempt": 1,
+    "automationId": "…",
+    "fields": {
+      "amount": "5 000",
+      "from": "70123456"
+    },
+    "numbers": {
+      "amount": 5000
+    }
   }
 }`}</Code>
             <p>
@@ -208,7 +264,14 @@ X-Relaix-Delivery: <jobId | messageId | id de livraison>
 
 {
   "event": "sms.sent",
-  "data": {"jobId": "…", "kind": "sms", "status": "sent", "recipient": "+22670000000", "partsSent": 1, "attempt": 1}
+  "data": {
+    "jobId": "…",
+    "kind": "sms",
+    "status": "sent",
+    "recipient": "+22670000000",
+    "partsSent": 1,
+    "attempt": 1
+  }
 }`}</Code>
             <p>
               Toujours la même enveloppe <code>{`{"event": "<nom>", "data": {…}}`}</code> : aiguillez sur <code>event</code>, lisez{" "}
@@ -279,7 +342,8 @@ function verify(secret, timestamp, rawBody, header) {
             <p>
               La passerelle est un serveur <a className="underline decoration-foreground/30 underline-offset-4 hover:decoration-foreground" href="https://modelcontextprotocol.io">MCP</a> à{" "}
               <code>{base}/mcp</code> : un assistant (Claude, ou tout client MCP) y trouve des outils pour lister les téléphones, envoyer des
-              SMS, lancer des codes USSD, lire les SMS reçus et écrire les automatisations — décrivez-lui en français ce que vous voulez. Il
+              SMS, lancer des codes USSD, lire les SMS reçus, régler les règles des téléphones (horaires, plafonds, pays, SMS transmis) et écrire
+              les automatisations — décrivez-lui en français ce que vous voulez. Il
               n'a que les droits de la clé utilisée : créez-en une pour lui, la révoquer le déconnecte.
             </p>
             <p>
@@ -300,21 +364,25 @@ function verify(secret, timestamp, rawBody, header) {
           </Section>
         </div>
 
-        <nav aria-label="Sur cette page" className="flex flex-[1_1_200px] flex-col gap-1 pt-1.5 lg:sticky lg:top-6">
-          <span className="pb-1.5 pl-3 eyebrow">Sur cette page</span>
+        {/* Narrow: a sticky row of tabs above the content. Wide: a sticky column beside it. */}
+        <nav
+          aria-label="Sur cette page"
+          className="sticky top-0 z-10 order-first -mx-4 -mt-2 flex gap-1 self-start overflow-x-auto border-b bg-background px-4 py-2 md:-mx-8 md:px-8 lg:top-6 lg:order-last lg:mx-0 lg:mt-0 lg:flex-col lg:overflow-visible lg:border-0 lg:bg-transparent lg:p-0 lg:pt-1.5"
+        >
+          <span className="eyebrow hidden pb-1.5 pl-3 lg:block">Sur cette page</span>
           {SECTIONS.map((s) => (
             <a
               key={s.id}
               href={`#${s.id}`}
               className={cn(
-                "border-l-2 px-3 py-1 text-[13px] transition-colors",
-                active === s.id ? "border-primary font-medium text-foreground" : "border-border text-muted-foreground hover:text-foreground",
+                "shrink-0 border-b-2 px-3 py-1 text-[13px] whitespace-nowrap transition-colors lg:border-b-0 lg:border-l-2",
+                active === s.id ? "border-primary font-medium text-foreground" : "border-transparent text-muted-foreground hover:text-foreground lg:border-border",
               )}
             >
               {s.label}
             </a>
           ))}
-          <div className="mt-4 flex flex-col gap-1.5 rounded-md border bg-card p-3">
+          <div className="mt-4 hidden flex-col gap-1.5 rounded-md border bg-card p-3 lg:flex">
             <span className="text-[13px] font-medium">Tester sans code</span>
             <span className="text-xs text-muted-foreground">La page Envoyer appelle la même API.</span>
             <Link to="/send" className="inline-flex items-center gap-1 text-[13px] font-medium underline decoration-foreground/30 underline-offset-4 hover:decoration-foreground">
@@ -365,7 +433,7 @@ function useActiveSection(): string {
 
 function Section({ id, title, method, path, children }: { id: string; title: string; method?: "GET" | "POST"; path?: string; children: ReactNode }) {
   return (
-    <section id={id} aria-labelledby={`h-${id}`} className="flex scroll-mt-6 flex-col gap-3">
+    <section id={id} aria-labelledby={`h-${id}`} className="flex scroll-mt-16 flex-col gap-3 lg:scroll-mt-6">
       <h2 id={`h-${id}`} className="flex flex-wrap items-center gap-2.5 text-xl font-semibold tracking-tight text-foreground">
         {title}
         {method && path && (
@@ -396,38 +464,6 @@ function Tile({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-function CopyButton({ text, label, dark }: { text: string; label: string; dark?: boolean }) {
-  const [copied, setCopied] = useState(false);
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch {
-      // Clipboard unavailable (insecure origin): the text stays selectable.
-    }
-  };
-  return (
-    <button
-      type="button"
-      onClick={copy}
-      aria-label={copied ? "Copié" : label}
-      title={copied ? "Copié" : label}
-      className={cn(
-        "inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border px-2 text-xs font-medium transition-colors",
-        dark
-          ? copied
-            ? "border-[#62c08d]/35 bg-[#62c08d]/10 text-[#62c08d]"
-            : "border-[#3d3c37] bg-[#22221f] text-[#9c978c] hover:text-white"
-          : "text-muted-foreground hover:bg-accent hover:text-foreground",
-      )}
-    >
-      {copied ? <Check className="size-3.5" aria-hidden /> : <Copy className="size-3.5" aria-hidden />}
-      {dark && (copied ? "Copié" : "Copier")}
-    </button>
-  );
-}
-
 /** Code stays dark in both themes: it reads as code, not as another card. */
 function Code({ children }: { children: string }) {
   return (
@@ -448,7 +484,7 @@ function Snippets({ snippets }: { snippets: Record<string, string> }) {
   return (
     <div className="overflow-hidden rounded-md border border-[#2f2e2a] bg-[#10100e]">
       <div className="flex items-center justify-between border-b border-[#2f2e2a] py-1.5 pr-2 pl-2.5">
-        <div role="tablist" aria-label="Langage" className="flex gap-0.5">
+        <div role="tablist" aria-label="Langage" className="flex min-w-0 gap-0.5 overflow-x-auto">
           {langs.map((l) => (
             <button
               key={l}

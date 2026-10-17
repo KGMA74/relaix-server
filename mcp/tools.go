@@ -32,6 +32,8 @@ var tools = map[string]toolFunc{
 	"save_automation":      saveAutomation,
 	"delete_automation":    deleteAutomation,
 	"list_automation_runs": listRuns,
+	"get_device_rules":     getDeviceRules,
+	"set_device_rules":     setDeviceRules,
 }
 
 // decode reads a tool's arguments strictly: a misspelt field is reported,
@@ -421,6 +423,83 @@ func deleteAutomation(ctx context.Context, c *caller, args json.RawMessage) (any
 	return "Deleted.", nil
 }
 
+// ---------------------------------------------------------------------------
+// phone rules
+// ---------------------------------------------------------------------------
+
+// rules is a policy without its automations: those have their own tools.
+type rules struct {
+	Version      int64               `json:"version"`
+	Availability policy.Availability `json:"availability"`
+	Accept       policy.AcceptRules  `json:"accept"`
+	Limits       policy.Limits       `json:"limits"`
+	Sims         []policy.SimPolicy  `json:"sims,omitempty"`
+	Inbound      policy.Inbound      `json:"inbound"`
+	Automations  int                 `json:"automations"`
+}
+
+func rulesOf(p policy.Policy) rules {
+	return rules{Version: p.Version, Availability: p.Availability, Accept: p.Accept, Limits: p.Limits,
+		Sims: p.Sims, Inbound: p.Inbound, Automations: len(p.Automations)}
+}
+
+func getDeviceRules(ctx context.Context, c *caller, args json.RawMessage) (any, error) {
+	var in struct {
+		DeviceID string `json:"deviceId"`
+	}
+	if err := decode(args, &in); err != nil {
+		return nil, err
+	}
+	p, err := devicePolicy(ctx, c, in.DeviceID)
+	if err != nil {
+		return nil, err
+	}
+	return rulesOf(p), nil
+}
+
+// setDeviceRules replaces the sections it is given and keeps the others, the
+// automations always among them.
+func setDeviceRules(ctx context.Context, c *caller, args json.RawMessage) (any, error) {
+	var in struct {
+		DeviceID     string               `json:"deviceId"`
+		Availability *policy.Availability `json:"availability"`
+		Accept       *policy.AcceptRules  `json:"accept"`
+		Limits       *policy.Limits       `json:"limits"`
+		Sims         *[]policy.SimPolicy  `json:"sims"`
+		Inbound      *policy.Inbound      `json:"inbound"`
+	}
+	if err := decode(args, &in); err != nil {
+		return nil, err
+	}
+	if in.Availability == nil && in.Accept == nil && in.Limits == nil && in.Sims == nil && in.Inbound == nil {
+		return nil, errorf("nothing to change: give at least one of availability, accept, limits, sims, inbound")
+	}
+	p, err := devicePolicy(ctx, c, in.DeviceID)
+	if err != nil {
+		return nil, err
+	}
+	if in.Availability != nil {
+		p.Availability = *in.Availability
+	}
+	if in.Accept != nil {
+		p.Accept = *in.Accept
+	}
+	if in.Limits != nil {
+		p.Limits = *in.Limits
+	}
+	if in.Sims != nil {
+		p.Sims = *in.Sims
+	}
+	if in.Inbound != nil {
+		p.Inbound = *in.Inbound
+	}
+	var stored policy.Policy
+	if err := c.do(ctx, "PUT", "/devices/"+url.PathEscape(in.DeviceID)+"/policy", p, &stored); err != nil {
+		return nil, err
+	}
+	return rulesOf(stored), nil
+}
+
 func listRuns(ctx context.Context, c *caller, args json.RawMessage) (any, error) {
 	var in struct {
 		DeviceID     string `json:"deviceId"`
@@ -575,4 +654,51 @@ var toolDefinitions = []obj{
 			"automationId": str("One automation."),
 			"limit":        num("At most 200; default 50."),
 		}), true, false),
+	tool("get_device_rules", "Get a phone's rules",
+		"When a phone takes work (availability), which recipients it accepts, its sending caps, its per-SIM rules and "+
+			"which received SMS it forwards. Automations are listed by list_automations.",
+		schema(obj{"deviceId": deviceID}, "deviceId"), true, false),
+	tool("set_device_rules", "Set a phone's rules",
+		"Replaces the sections given (availability, accept, limits, sims, inbound) and keeps the others and the "+
+			"automations; the phone gets them at once. Read get_device_rules first and send each section whole. "+
+			"Rules can stop a phone from sending: say what changes and confirm with the user.",
+		schema(obj{
+			"deviceId":     deviceID,
+			"availability": availabilitySchema,
+			"accept":       acceptSchema,
+			"limits":       limitsSchema,
+			"sims": obj{"type": "array", "description": "Per-SIM rules, all of them: a SIM must satisfy its own and the phone's.",
+				"items": schema(obj{
+					"subscriptionId": num("The SIM (list_devices → sims)."),
+					"disabled":       obj{"type": "boolean", "description": "Never send from this SIM."},
+					"accept":         acceptSchema,
+					"availability":   availabilitySchema,
+					"limits":         limitsSchema,
+				}, "subscriptionId")},
+			"inbound": schema(obj{
+				"enabled": obj{"type": "boolean", "description": "Forward received SMS at all."},
+				"senders": obj{"type": "array", "items": obj{"type": "string"}, "maxItems": 50,
+					"description": "Forward only these senders (whole, ignoring case), e.g. OrangeMoney. Empty: all."},
+			}),
+		}, "deviceId"), false, false),
 }
+
+var availabilitySchema = schema(obj{
+	"timeZone": str("IANA zone, e.g. Africa/Ouagadougou; empty: the phone's."),
+	"windows": obj{"type": "array", "description": "Daily slots the phone takes work in; none: always.",
+		"items": schema(obj{
+			"days":  obj{"type": "array", "items": obj{"type": "integer", "minimum": 1, "maximum": 7}, "description": "ISO weekdays, 1 = Monday; empty: every day."},
+			"start": num("Minutes since midnight, e.g. 480 for 08:00."),
+			"end":   num("Minutes since midnight, exclusive; at or before start runs past midnight; both 0: all day."),
+		}, "start", "end")},
+})
+
+var acceptSchema = schema(obj{
+	"countries": obj{"type": "array", "items": obj{"type": "string"}, "description": "ISO 3166-1 alpha-2 codes, e.g. BF; empty: any."},
+	"pattern":   str("RE2 regexp the E.164 recipient must match; empty: any."),
+})
+
+var limitsSchema = schema(obj{
+	"perHour": num("Messages per hour at most; 0: no cap."),
+	"perDay":  num("Messages per day at most; 0: no cap."),
+})

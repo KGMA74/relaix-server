@@ -1,11 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Copy, FlaskConical, Loader2, Pencil, Plus, RefreshCw, Trash2, Workflow, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { api } from "../api/client";
 import type { Automation, AutomationAction, AutomationActionType, AutomationCondition, Device, Policy } from "../api/types";
 import { CardHeader, ConfirmDialog, Empty, ErrorNote, Modal, ModalActions, PageHeader, Pill } from "../components/common";
+import { CopyButton } from "../components/CopyButton";
 import { formatDateTime } from "../lib/format";
 import { Switch } from "@/components/ui/switch";
 import { fieldsOf, jsonBodyError, match, numbersOf, patternError, render, renderBody, renderUssd, unknownFields } from "../lib/automation";
@@ -123,6 +124,8 @@ export function AutomationsPage() {
         )}
       </div>
 
+      <AssistantCard />
+
       <ErrorNote error={devices.error ?? save.error} />
 
       {devices.isSuccess && list.length === 0 && <Empty icon={<Workflow />}>Aucun téléphone enrôlé.</Empty>}
@@ -194,6 +197,57 @@ export function AutomationsPage() {
         />
       )}
     </>
+  );
+}
+
+/** Prompts that work as they are: the assistant reads the phone, tests, then saves. */
+const PROMPTS = [
+  "Quand OrangeMoney m'envoie un reçu de paiement, envoie le montant et le numéro à https://exemple.com/hooks/paiements.",
+  "Réponds « Merci, bien reçu » à chaque SMS qui contient le mot COMMANDE.",
+  "Transmets à la passerelle les SMS de Moov Money au-dessus de 10 000 FCFA.",
+];
+
+/**
+ * An automation can be described rather than built: an assistant connected to
+ * the gateway's MCP server writes it, tests it on an example, then saves it.
+ */
+function AssistantCard() {
+  const url = `${window.location.origin}/mcp`;
+  return (
+    <section className="card mb-4 overflow-hidden" aria-label="Avec un assistant">
+      <CardHeader
+        title="Décrivez-la à un assistant"
+        description="Claude ou tout client MCP écrit l'automatisation, la teste sur un exemple, puis l'enregistre."
+        actions={
+          <Link to="/integration#mcp" className="text-[13px] font-medium whitespace-nowrap underline decoration-foreground/30 underline-offset-4 hover:decoration-foreground">
+            Connecter un assistant
+          </Link>
+        }
+      />
+      <div className="grid gap-4 p-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
+        <div className="flex flex-col gap-1.5">
+          <span className="eyebrow">Adresse du connecteur</span>
+          <div className="flex items-center gap-2 rounded-sm border bg-background px-2.5 py-1.5">
+            <span className="min-w-0 flex-1 truncate font-mono text-[13px]">{url}</span>
+            <CopyButton text={url} label="Copier l'adresse" />
+          </div>
+          <span className="text-xs text-muted-foreground">
+            claude.ai : Paramètres → Connecteurs → Ajouter un connecteur personnalisé. La clé API est demandée une fois.
+          </span>
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <span className="eyebrow">Par exemple</span>
+          <ul className="flex flex-col gap-1.5">
+            {PROMPTS.map((p) => (
+              <li key={p} className="flex items-start gap-2 rounded-sm border bg-background px-2.5 py-1.5 text-[13px]">
+                <span className="min-w-0 flex-1">{p}</span>
+                <CopyButton text={p} label="Copier la consigne" />
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
+    </section>
   );
 }
 

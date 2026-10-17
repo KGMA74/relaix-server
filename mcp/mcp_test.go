@@ -270,6 +270,53 @@ func TestSaveAutomationGeneratesTheWebhookSecret(t *testing.T) {
 	}
 }
 
+func TestDeviceRulesKeepTheAutomations(t *testing.T) {
+	_, f, h := newServer(t)
+	if text, isErr := call(t, h, goodKey, "save_automation", map[string]any{"deviceId": "dev-1", "automation": omAutomation()}); isErr {
+		t.Fatal(text)
+	}
+	text, isErr := call(t, h, goodKey, "set_device_rules", map[string]any{
+		"deviceId": "dev-1",
+		"limits":   map[string]any{"perHour": 30, "perDay": 300},
+		"accept":   map[string]any{"countries": []string{"bf"}},
+		"availability": map[string]any{"timeZone": "Africa/Ouagadougou",
+			"windows": []any{map[string]any{"days": []int{1, 2, 3, 4, 5}, "start": 480, "end": 1200}}},
+	})
+	if isErr {
+		t.Fatal(text)
+	}
+	if f.policy.Limits.PerHour != 30 || f.policy.Accept.Countries[0] != "BF" || len(f.policy.Availability.Windows) != 1 {
+		t.Fatalf("stored %+v", f.policy)
+	}
+	if len(f.policy.Automations) != 1 {
+		t.Fatal("the automations were dropped")
+	}
+
+	// A section not given stays as it was.
+	if text, isErr := call(t, h, goodKey, "set_device_rules", map[string]any{"deviceId": "dev-1", "inbound": map[string]any{"enabled": true}}); isErr {
+		t.Fatal(text)
+	}
+	if f.policy.Limits.PerHour != 30 || !f.policy.Inbound.Enabled {
+		t.Fatalf("after a partial change: %+v", f.policy)
+	}
+
+	got, isErr := call(t, h, goodKey, "get_device_rules", map[string]any{"deviceId": "dev-1"})
+	var r struct {
+		Limits      policy.Limits `json:"limits"`
+		Automations int           `json:"automations"`
+	}
+	if isErr || json.Unmarshal([]byte(got), &r) != nil || r.Limits.PerHour != 30 || r.Automations != 1 {
+		t.Fatalf("get_device_rules = %s", got)
+	}
+
+	if _, isErr := call(t, h, goodKey, "set_device_rules", map[string]any{"deviceId": "dev-1"}); !isErr {
+		t.Error("an empty change accepted")
+	}
+	if _, isErr := call(t, h, goodKey, "set_device_rules", map[string]any{"deviceId": "dev-1", "limits": map[string]any{"perHour": -1}}); !isErr {
+		t.Error("a negative cap accepted")
+	}
+}
+
 // ---------------------------------------------------------------------------
 // OAuth
 // ---------------------------------------------------------------------------

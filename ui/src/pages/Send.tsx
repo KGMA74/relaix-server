@@ -5,6 +5,7 @@ import { Link } from "react-router-dom";
 import { api } from "../api/client";
 import type { Device, Job, JobMode, SendRequest } from "../api/types";
 import { CardHeader, ErrorNote, PageHeader, StatusBadge } from "../components/common";
+import { CopyButton } from "../components/CopyButton";
 import { cn } from "@/lib/utils";
 import { localInputToISO, shortId } from "../lib/format";
 import { countSegments, isE164, parseRecipients } from "../lib/sms";
@@ -90,10 +91,8 @@ export function SendPage() {
     }
   }
 
-  function submit(e?: FormEvent) {
-    e?.preventDefault();
-    if (!canSend) return;
-    commit();
+  /** The request the form stands for: what is sent, and what the curl shows. */
+  function request(): SendRequest {
     const req: SendRequest = { body, mode };
     // The singular form when there is one number, so the reply is the plain
     // job object every other caller of POST /send gets.
@@ -107,8 +106,17 @@ export function SendPage() {
     const at = localInputToISO(scheduledAt);
     if (at) req.scheduledAt = at;
     if (callbackUrl.trim()) req.callbackUrl = callbackUrl.trim();
-    send.mutate(req);
+    return req;
   }
+
+  function submit(e?: FormEvent) {
+    e?.preventDefault();
+    if (!canSend) return;
+    commit();
+    send.mutate(request());
+  }
+
+  const curl = toCurl(request());
 
   function reset() {
     setRecipients([]);
@@ -334,7 +342,8 @@ export function SendPage() {
           </div>
         </form>
 
-        <div className="flex min-w-0 flex-[1_1_340px] flex-col gap-4">
+        {/* Beside the form, it stays in view while the form scrolls. */}
+        <div className="flex min-w-0 flex-[1_1_340px] flex-col gap-4 lg:sticky lg:top-0">
           {created.length > 0 && (
             <section className="card overflow-hidden" aria-label="Résultat">
               <CardHeader title="Résultat" description="Pris en charge : le statut évolue dans l'historique." />
@@ -404,10 +413,30 @@ export function SendPage() {
               </div>
             )}
           </section>
+
+          <section className="card overflow-hidden" aria-label="Requête">
+            <CardHeader title="Requête" description="La même, depuis votre code : la clé reste une variable." actions={<CopyButton text={curl} label="Copier la commande curl" />} />
+            <pre className="max-h-56 overflow-auto bg-muted/40 px-4 py-3 font-mono text-xs leading-relaxed">{curl}</pre>
+          </section>
         </div>
       </div>
     </>
   );
+}
+
+/**
+ * The form as a curl command. The key is $RELAIX_API_KEY, never the one this
+ * tab holds: the command gets pasted into tickets and chats.
+ */
+function toCurl(req: SendRequest): string {
+  // Single quotes around the body: one inside it closes, escapes and reopens.
+  const json = JSON.stringify(req, null, 2).replace(/'/g, "'\\''");
+  return [
+    `curl -X POST ${window.location.origin}/send \\`,
+    `  -H "Authorization: Bearer $RELAIX_API_KEY" \\`,
+    `  -H "Content-Type: application/json" \\`,
+    `  -d '${json.replace(/\n/g, "\n  ")}'`,
+  ].join("\n");
 }
 
 function dedupe(list: string[]): string[] {
