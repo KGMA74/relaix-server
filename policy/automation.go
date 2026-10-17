@@ -18,9 +18,12 @@ import (
 // extract fields, act. Defined here, run on the phone (protocol.md §11); the
 // gateway validates it so that whatever is stored runs the same there.
 type Automation struct {
-	ID      string `json:"id"`
-	Name    string `json:"name"`
-	Enabled bool   `json:"enabled,omitempty"`
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	// Description says what it is for, in a sentence or two: for the people
+	// reading the list, and for an assistant choosing among automations.
+	Description string `json:"description,omitempty"`
+	Enabled     bool   `json:"enabled,omitempty"`
 	// SubscriptionID is the SIM it listens on; 0: any.
 	SubscriptionID int32 `json:"subscriptionId,omitempty"`
 	// Senders are matched whole, ignoring case. Empty: any sender.
@@ -77,6 +80,7 @@ const (
 	maxActions        = 5
 	maxConditions     = 10
 	maxNameLen        = 64
+	maxDescriptionLen = 500
 	maxReplyLen       = 480
 	maxWebhookBodyLen = 4000
 	maxSecretLen      = 128
@@ -202,6 +206,7 @@ func normalizeAutomations(in []Automation) []Automation {
 			a.ID = uuid.NewString()
 		}
 		a.Name = strings.TrimSpace(a.Name)
+		a.Description = strings.TrimSpace(a.Description)
 		a.Pattern = strings.TrimSpace(a.Pattern)
 		a.Senders = normalizeInbound(Inbound{Senders: a.Senders}).Senders
 		for j := range a.Conditions {
@@ -240,6 +245,9 @@ func validateAutomations(list []Automation) error {
 func (a Automation) validate(where string) error {
 	if a.Name == "" || len([]rune(a.Name)) > maxNameLen {
 		return invalid("%s.name: 1 to %d characters", where, maxNameLen)
+	}
+	if len([]rune(a.Description)) > maxDescriptionLen {
+		return invalid("%s.description: at most %d characters", where, maxDescriptionLen)
 	}
 	if a.SubscriptionID < 0 {
 		return invalid("%s.subscriptionId: not a subscription", where)
@@ -359,7 +367,7 @@ func automationsToProto(list []Automation) []*v1.Automation {
 	out := make([]*v1.Automation, 0, len(list))
 	for _, a := range list {
 		m := &v1.Automation{
-			Id: a.ID, Name: a.Name, Enabled: a.Enabled, SubscriptionId: a.SubscriptionID,
+			Id: a.ID, Name: a.Name, Description: a.Description, Enabled: a.Enabled, SubscriptionId: a.SubscriptionID,
 			Senders: a.Senders, Pattern: a.Pattern, Limits: limitsToProto(a.Limits),
 		}
 		for _, c := range a.Conditions {
@@ -388,7 +396,7 @@ func automationsFromProto(list []*v1.Automation) []Automation {
 	var out []Automation
 	for _, m := range list {
 		a := Automation{
-			ID: m.GetId(), Name: m.GetName(), Enabled: m.GetEnabled(), SubscriptionID: m.GetSubscriptionId(),
+			ID: m.GetId(), Name: m.GetName(), Description: m.GetDescription(), Enabled: m.GetEnabled(), SubscriptionID: m.GetSubscriptionId(),
 			Senders: m.GetSenders(), Pattern: m.GetPattern(), Limits: limitsFromProto(m.GetLimits()),
 		}
 		for _, c := range m.GetConditions() {

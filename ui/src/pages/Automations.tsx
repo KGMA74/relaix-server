@@ -4,7 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { api } from "../api/client";
-import type { Automation, AutomationAction, AutomationActionType, AutomationCondition, Device, Policy } from "../api/types";
+import type { Automation, AutomationAction, AutomationActionType, AutomationCondition, AutomationTemplate, Device, Policy } from "../api/types";
+import { instantiate, missing } from "../lib/library";
 import { CardHeader, ConfirmDialog, Empty, ErrorNote, Modal, ModalActions, PageHeader, Pill } from "../components/common";
 import { CopyButton } from "../components/CopyButton";
 import { formatDateTime } from "../lib/format";
@@ -60,6 +61,7 @@ export function AutomationsPage() {
 
   const [editing, setEditing] = useState<Automation | null>(null);
   const [removing, setRemoving] = useState<Automation | null>(null);
+  const [installing, setInstalling] = useState<AutomationTemplate | null>(null);
 
   const save = useMutation({
     mutationFn: (next: Automation[]) => {
@@ -81,11 +83,18 @@ export function AutomationsPage() {
       });
       setEditing(null);
       setRemoving(null);
+      setInstalling(null);
     },
   });
 
   const upsert = (a: Automation) =>
     save.mutate(a.id ? automations.map((x) => (x.id === a.id ? a : x)) : [...automations, a]);
+  // A template's webhooks get their signing secret here, as a new one does in the editor.
+  const install = (a: Automation) =>
+    save.mutate([
+      ...automations,
+      { ...a, actions: a.actions.map((act) => (act.type === "webhook" && !act.secret ? { ...act, secret: webhookSecret() } : act)) },
+    ]);
   const toggle = (a: Automation, enabled: boolean) => save.mutate(automations.map((x) => (x.id === a.id ? { ...x, enabled } : x)));
 
   return (
@@ -140,7 +149,12 @@ export function AutomationsPage() {
                   {!a.enabled && <Pill tone="neutral">désactivée</Pill>}
                 </span>
               }
-              description={summary(a, device!)}
+              description={
+                <>
+                  {a.description && <span className="mb-0.5 block text-[13px] text-foreground/80">{a.description}</span>}
+                  {summary(a, device!)}
+                </>
+              }
               actions={
                 <div className="flex items-center gap-2">
                   <Switch checked={!!a.enabled} onCheckedChange={(on) => toggle(a, on)} aria-label="Activer" />
@@ -174,6 +188,8 @@ export function AutomationsPage() {
         </div>
       )}
 
+      {device && <Library onInstall={setInstalling} />}
+
       {device && <RunLog deviceId={device.deviceId} names={Object.fromEntries(automations.map((a) => [a.id, a.name]))} />}
 
       {editing && device && (
@@ -186,6 +202,9 @@ export function AutomationsPage() {
           onClose={() => setEditing(null)}
         />
       )}
+      {installing && device && (
+        <InstallDrawer template={installing} busy={save.isPending} error={save.error} onInstall={install} onClose={() => setInstalling(null)} />
+      )}
       {removing && (
         <ConfirmDialog
           title={`Supprimer « ${removing.name} » ?`}
@@ -197,6 +216,155 @@ export function AutomationsPage() {
         />
       )}
     </>
+  );
+}
+
+/**
+ * Ready-made automations, installed like plugins: pick one, fill in a value or
+ * two. The gateway ships some; on the cloud, the platform adds its own.
+ */
+function Library({ onInstall }: { onInstall: (t: AutomationTemplate) => void }) {
+  const library = useQuery({ queryKey: ["automation-library"], queryFn: api.library, staleTime: 5 * 60_000 });
+  const [category, setCategory] = useState("");
+  const list = library.data?.templates ?? [];
+  const categories = [...new Set(list.map((t) => t.category).filter((c): c is string => !!c))];
+  const shown = category ? list.filter((t) => t.category === category) : list;
+  if (library.isSuccess && list.length === 0) return null;
+  return (
+    <section className="mt-6" aria-labelledby="library-title">
+      <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h2 id="library-title" className="eyebrow text-foreground">
+            Bibliothèque
+          </h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Des automatisations prêtes à l'emploi : choisissez, remplissez une ou deux valeurs, installez.
+          </p>
+        </div>
+        {categories.length > 1 && (
+          <div role="tablist" aria-label="Catégorie" className="inline-flex divide-x overflow-hidden rounded-sm border bg-card">
+            {["", ...categories].map((c) => (
+              <button
+                key={c || "all"}
+                role="tab"
+                aria-selected={category === c}
+                onClick={() => setCategory(c)}
+                className={cn(
+                  "px-3 py-1 font-mono text-xs font-medium transition-colors",
+                  category === c ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {c || "Toutes"}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+      <ErrorNote error={library.error} />
+      <div className="grid gap-px overflow-hidden rounded-md border bg-border sm:grid-cols-2 xl:grid-cols-3">
+        {shown.map((t) => (
+          <article key={t.id} className="flex flex-col gap-2 bg-card p-4">
+            <span className="eyebrow">{t.category || "Divers"}</span>
+            <h3 className="text-sm font-semibold">{t.name}</h3>
+            <p className="flex-1 text-[13px] text-muted-foreground">{t.description}</p>
+            <div className="flex items-center justify-between gap-2 pt-1">
+              <span className="font-mono text-[11px] text-muted-foreground">
+                {t.params?.length ? `${t.params.length} valeur${t.params.length > 1 ? "s" : ""} à remplir` : "Rien à remplir"}
+              </span>
+              <button type="button" className="btn-secondary h-8" onClick={() => onInstall(t)}>
+                <Plus className="size-4" aria-hidden />
+                Installer
+              </button>
+            </div>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function InstallDrawer({
+  template,
+  busy,
+  error,
+  onInstall,
+  onClose,
+}: {
+  template: AutomationTemplate;
+  busy: boolean;
+  error: unknown;
+  onInstall: (a: Automation) => void;
+  onClose: () => void;
+}) {
+  const [values, setValues] = useState<Record<string, string>>({});
+  const [name, setName] = useState("");
+  const lacking = missing(template, values);
+  const a = instantiate(template, values);
+  return (
+    <Modal label={`Installer « ${template.name} »`} description={template.description} onClose={onClose}>
+      <form
+        className="space-y-4"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (lacking.length === 0) onInstall(name.trim() ? { ...a, name: name.trim() } : a);
+        }}
+      >
+        {(template.params ?? []).map((p) => (
+          <div key={p.key}>
+            <label className="label" htmlFor={`tpl-${p.key}`}>
+              {p.label}
+              {!p.required && <span className="font-normal text-muted-foreground"> — facultatif</span>}
+            </label>
+            <input
+              id={`tpl-${p.key}`}
+              className="input"
+              required={p.required}
+              placeholder={p.example}
+              value={values[p.key] ?? ""}
+              onChange={(e) => setValues((v) => ({ ...v, [p.key]: e.target.value }))}
+            />
+            {p.description && <p className="mt-1 text-xs text-muted-foreground">{p.description}</p>}
+          </div>
+        ))}
+        <div>
+          <label className="label" htmlFor="tpl-name">
+            Nom <span className="font-normal text-muted-foreground">— facultatif</span>
+          </label>
+          <input id="tpl-name" className="input" placeholder={a.name} value={name} onChange={(e) => setName(e.target.value)} />
+        </div>
+        <div className="rounded-sm border bg-muted/40 p-3 text-[13px]">
+          <span className="eyebrow">Ce qui sera installé</span>
+          <ul className="mt-2 space-y-1">
+            <li>
+              {a.senders?.length ? (
+                <>
+                  Expéditeur : <span className="font-mono">{a.senders.join(", ")}</span>
+                </>
+              ) : (
+                "Tous les expéditeurs"
+              )}
+            </li>
+            {a.actions.map((act, i) => (
+              <li key={i}>
+                {i + 1}. {ACTION_LABEL[act.type]}
+                {act.url && <span className="ml-1 font-mono text-xs break-all text-muted-foreground">{act.url}</span>}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 text-xs text-muted-foreground">Vous pourrez l'ajuster ensuite comme n'importe quelle automatisation.</p>
+        </div>
+        <ErrorNote error={error} />
+        <ModalActions>
+          <button type="button" className="btn-secondary" onClick={onClose}>
+            Annuler
+          </button>
+          <button className="btn-primary" disabled={busy || lacking.length > 0}>
+            {busy && <Loader2 className="size-4 animate-spin" aria-hidden />}
+            Installer
+          </button>
+        </ModalActions>
+      </form>
+    </Modal>
   );
 }
 
@@ -352,6 +520,20 @@ function AutomationEditor({
               ))}
             </select>
           </div>
+        </div>
+        <div>
+          <label className="label" htmlFor="auto-description">
+            Description <span className="font-normal text-muted-foreground">— facultative</span>
+          </label>
+          <textarea
+            id="auto-description"
+            className="input"
+            rows={2}
+            maxLength={500}
+            value={a.description ?? ""}
+            onChange={(e) => set({ description: e.target.value })}
+            placeholder="À quoi elle sert : affichée sous son nom, ici et sur le téléphone, et lue par un assistant."
+          />
         </div>
 
         <section className="space-y-3">

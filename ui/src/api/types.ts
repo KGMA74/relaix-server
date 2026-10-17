@@ -249,6 +249,8 @@ export interface AutomationCondition {
 export interface Automation {
   id: string;
   name: string;
+  /** What it is for: shown under its name, and read by an assistant. */
+  description?: string;
   enabled?: boolean;
   /** 0 or absent: any SIM. */
   subscriptionId?: number;
@@ -258,6 +260,26 @@ export interface Automation {
   conditions?: AutomationCondition[];
   actions: AutomationAction[];
   limits?: SendLimits;
+}
+
+/** A ready-made automation, installed by filling its params (GET /automations/library). */
+export interface AutomationTemplate {
+  id: string;
+  name: string;
+  description: string;
+  category?: string;
+  params?: TemplateParam[];
+  /** Its texts carry {{key}} where a param goes. */
+  automation: Automation;
+  builtin?: boolean;
+}
+
+export interface TemplateParam {
+  key: string;
+  label: string;
+  description?: string;
+  example?: string;
+  required?: boolean;
 }
 
 export interface InboundRules {

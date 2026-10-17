@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/KGMA74/relaix-server/api"
+	"github.com/KGMA74/relaix-server/library"
 	"github.com/KGMA74/relaix-server/policy"
 )
 
@@ -70,6 +71,8 @@ func (f *fakeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		p.Version++
 		f.policy = p
 		_ = json.NewEncoder(w).Encode(p)
+	case r.Method == "GET" && r.URL.Path == "/automations/library":
+		_ = json.NewEncoder(w).Encode(map[string]any{"templates": library.Builtin()})
 	case r.Method == "POST" && r.URL.Path == "/send":
 		w.WriteHeader(http.StatusAccepted)
 		_, _ = io.WriteString(w, `{"jobs":[{"jobId":"j1","status":"pending"}]}`)
@@ -267,6 +270,35 @@ func TestSaveAutomationGeneratesTheWebhookSecret(t *testing.T) {
 	bad["pattern"] = "(?P<amount>"
 	if _, isErr := call(t, h, goodKey, "save_automation", map[string]any{"deviceId": "dev-1", "automation": bad}); !isErr {
 		t.Error("invalid pattern accepted")
+	}
+}
+
+func TestInstallFromTheLibrary(t *testing.T) {
+	_, f, h := newServer(t)
+	list, isErr := call(t, h, goodKey, "list_automation_library", map[string]any{})
+	if isErr || !strings.Contains(list, "builtin-momo-payment-webhook") {
+		t.Fatalf("library = %s", list)
+	}
+	text, isErr := call(t, h, goodKey, "install_automation", map[string]any{
+		"deviceId": "dev-1", "templateId": "builtin-momo-payment-webhook",
+		"params": map[string]string{"sender": "OrangeMoney", "url": "https://shop.example/hooks/om"},
+	})
+	if isErr {
+		t.Fatal(text)
+	}
+	if len(f.policy.Automations) != 1 {
+		t.Fatalf("stored %d automations", len(f.policy.Automations))
+	}
+	a := f.policy.Automations[0]
+	if a.Senders[0] != "OrangeMoney" || a.Actions[0].URL != "https://shop.example/hooks/om" || a.Description == "" || !a.Enabled {
+		t.Errorf("installed %+v", a)
+	}
+	if !strings.HasPrefix(a.Actions[0].Secret, "whsec_") {
+		t.Errorf("webhook secret = %q", a.Actions[0].Secret)
+	}
+	if _, isErr := call(t, h, goodKey, "install_automation", map[string]any{"deviceId": "dev-1", "templateId": "builtin-momo-payment-webhook",
+		"params": map[string]string{"sender": "OrangeMoney"}}); !isErr {
+		t.Error("installed without its required url")
 	}
 }
 

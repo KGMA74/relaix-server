@@ -39,6 +39,7 @@ import (
 	v1 "github.com/KGMA74/relaix-server/gen/smsgateway/v1"
 	"github.com/KGMA74/relaix-server/grpcserver"
 	"github.com/KGMA74/relaix-server/hub"
+	"github.com/KGMA74/relaix-server/library"
 	"github.com/KGMA74/relaix-server/mcp"
 	"github.com/KGMA74/relaix-server/scheduler"
 	"github.com/KGMA74/relaix-server/store/postgres"
@@ -68,7 +69,9 @@ type Extensions struct {
 	InboundWebhookFor func(ctx context.Context, account uuid.UUID) (string, error)
 	Routes            func(mux *http.ServeMux)
 	PublicPrefixes    []string
-	UIConfig          api.UIConfig
+	// Library replaces the built-in catalogue of automation templates.
+	Library  library.Source
+	UIConfig api.UIConfig
 	// UI replaces the built-in dashboard.
 	UI fs.FS
 }
@@ -196,6 +199,7 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger, extend Ext
 			Routes:         ext.Routes,
 			PublicPrefixes: ext.PublicPrefixes,
 			UIConfig:       ext.UIConfig,
+			Library:        ext.Library,
 			PublicURL:      cfg.PublicURL,
 			UI:             dashboard,
 			Events:         broker,

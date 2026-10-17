@@ -1,4 +1,4 @@
-import type { Activity, AutomationRun, Country, Device, Policy, EnrollToken, InboundMessage, InboxPage, Job, JobEvent, JobKind, JobPage, SendRequest, Stats, UssdRequest } from "./types";
+import type { Activity, AutomationRun, AutomationTemplate, Country, Device, Policy, EnrollToken, InboundMessage, InboxPage, Job, JobEvent, JobKind, JobPage, SendRequest, Stats, UssdRequest } from "./types";
 
 // The API key lives in sessionStorage: it survives a reload but not closing the
 // tab, which is the right lifetime for an admin credential typed by hand.
@@ -148,6 +148,7 @@ export const api = {
   listInbox: (q: InboxQuery) => request<InboxPage>("GET", "/inbox" + inboxQuery(q)),
   getInbound: (id: string) => request<InboundMessage>("GET", `/inbox/${id}`),
 
+  library: () => request<{ templates: AutomationTemplate[] }>("GET", "/automations/library"),
   listRuns: (deviceId?: string) =>
     request<{ runs: AutomationRun[] }>("GET", "/automations/runs" + (deviceId ? `?deviceId=${deviceId}` : "")),
 

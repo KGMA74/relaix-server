@@ -13,27 +13,30 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/KGMA74/relaix-server/library"
 	"github.com/KGMA74/relaix-server/policy"
 )
 
 type toolFunc func(ctx context.Context, c *caller, args json.RawMessage) (any, error)
 
 var tools = map[string]toolFunc{
-	"list_devices":         listDevices,
-	"send_sms":             sendSMS,
-	"run_ussd":             runUSSD,
-	"get_job":              getJob,
-	"list_jobs":            listJobs,
-	"cancel_job":           cancelJob,
-	"list_inbox":           listInbox,
-	"get_stats":            getStats,
-	"list_automations":     listAutomations,
-	"test_automation":      testAutomation,
-	"save_automation":      saveAutomation,
-	"delete_automation":    deleteAutomation,
-	"list_automation_runs": listRuns,
-	"get_device_rules":     getDeviceRules,
-	"set_device_rules":     setDeviceRules,
+	"list_devices":            listDevices,
+	"send_sms":                sendSMS,
+	"run_ussd":                runUSSD,
+	"get_job":                 getJob,
+	"list_jobs":               listJobs,
+	"cancel_job":              cancelJob,
+	"list_inbox":              listInbox,
+	"get_stats":               getStats,
+	"list_automations":        listAutomations,
+	"test_automation":         testAutomation,
+	"save_automation":         saveAutomation,
+	"delete_automation":       deleteAutomation,
+	"list_automation_runs":    listRuns,
+	"get_device_rules":        getDeviceRules,
+	"list_automation_library": listLibrary,
+	"install_automation":      installAutomation,
+	"set_device_rules":        setDeviceRules,
 }
 
 // decode reads a tool's arguments strictly: a misspelt field is reported,
@@ -424,6 +427,57 @@ func deleteAutomation(ctx context.Context, c *caller, args json.RawMessage) (any
 }
 
 // ---------------------------------------------------------------------------
+// library
+// ---------------------------------------------------------------------------
+
+func templates(ctx context.Context, c *caller) ([]library.Template, error) {
+	var out struct {
+		Templates []library.Template `json:"templates"`
+	}
+	if err := c.do(ctx, "GET", "/automations/library", nil, &out); err != nil {
+		return nil, err
+	}
+	return out.Templates, nil
+}
+
+func listLibrary(ctx context.Context, c *caller, _ json.RawMessage) (any, error) {
+	list, err := templates(ctx, c)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"templates": list}, nil
+}
+
+func installAutomation(ctx context.Context, c *caller, args json.RawMessage) (any, error) {
+	var in struct {
+		DeviceID   string            `json:"deviceId"`
+		TemplateID string            `json:"templateId"`
+		Params     map[string]string `json:"params"`
+		Name       string            `json:"name"`
+	}
+	if err := decode(args, &in); err != nil {
+		return nil, err
+	}
+	list, err := templates(ctx, c)
+	if err != nil {
+		return nil, err
+	}
+	i := slices.IndexFunc(list, func(t library.Template) bool { return t.ID == in.TemplateID })
+	if i < 0 {
+		return nil, errorf("no template %s (list_automation_library gives the ids)", in.TemplateID)
+	}
+	a, err := list[i].Instantiate(in.Params)
+	if err != nil {
+		return nil, errorf("%v", err)
+	}
+	if strings.TrimSpace(in.Name) != "" {
+		a.Name = in.Name
+	}
+	raw, _ := json.Marshal(map[string]any{"deviceId": in.DeviceID, "automation": a})
+	return saveAutomation(ctx, c, raw)
+}
+
+// ---------------------------------------------------------------------------
 // phone rules
 // ---------------------------------------------------------------------------
 
@@ -545,6 +599,7 @@ var automationSchema = obj{
 	"properties": obj{
 		"id":             str("Keep it to replace an existing automation; omit to create one."),
 		"name":           str("1 to 64 characters."),
+		"description":    str("What it is for, in a sentence or two (500 characters at most): shown in the dashboard and on the phone."),
 		"enabled":        obj{"type": "boolean"},
 		"subscriptionId": num("The SIM it listens on (list_devices → sims); 0 or omitted: any."),
 		"senders":        obj{"type": "array", "items": obj{"type": "string"}, "description": "Senders matched whole, ignoring case, e.g. OrangeMoney. Empty: any."},
@@ -654,6 +709,19 @@ var toolDefinitions = []obj{
 			"automationId": str("One automation."),
 			"limit":        num("At most 200; default 50."),
 		}), true, false),
+	tool("list_automation_library", "Automation library",
+		"Ready-made automations to install on a phone, each with what it does and the values it asks for. "+
+			"Look here before writing one.",
+		schema(obj{}), true, false),
+	tool("install_automation", "Install from the library",
+		"Installs a library template on a phone, its parameters filled in; the phone gets it at once. "+
+			"Ask the user for the values the template needs.",
+		schema(obj{
+			"deviceId":   deviceID,
+			"templateId": str("A template id, from list_automation_library."),
+			"params":     obj{"type": "object", "additionalProperties": obj{"type": "string"}, "description": "The template's params, by key."},
+			"name":       str("A name of its own; omitted: the template's."),
+		}, "deviceId", "templateId"), false, false),
 	tool("get_device_rules", "Get a phone's rules",
 		"When a phone takes work (availability), which recipients it accepts, its sending caps, its per-SIM rules and "+
 			"which received SMS it forwards. Automations are listed by list_automations.",

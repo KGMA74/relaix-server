@@ -248,9 +248,11 @@ type DeviceInfo struct {
 	// job to an agent that would not understand it: an unknown ServerMessage
 	// payload is silently dropped by an older agent, and the job would sit
 	// assigned to a phone that never saw it. Values:
-	//   "ussd"         runs a UssdJob with no replies (one request, one answer)
-	//   "ussd_menu"    also runs one with replies (a menu, step by step)
-	//   "inbound_sms"  forwards received SMS (SmsReceived) when its rules say so
+	//
+	//	"ussd"         runs a UssdJob with no replies (one request, one answer)
+	//	"ussd_menu"    also runs one with replies (a menu, step by step)
+	//	"inbound_sms"  forwards received SMS (SmsReceived) when its rules say so
+	//
 	// Empty from agents that predate the field: SMS only.
 	Capabilities  []string `protobuf:"bytes,11,rep,name=capabilities,proto3" json:"capabilities,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -1125,7 +1127,9 @@ type Automation struct {
 	// Run in order; a failure stops the run.
 	Actions []*AutomationAction `protobuf:"bytes,8,rep,name=actions,proto3" json:"actions,omitempty"`
 	// Runs per sliding hour and day, counted on the phone. 0: no cap.
-	Limits        *SendLimits `protobuf:"bytes,9,opt,name=limits,proto3" json:"limits,omitempty"`
+	Limits *SendLimits `protobuf:"bytes,9,opt,name=limits,proto3" json:"limits,omitempty"`
+	// What it is for, in a sentence or two, shown under its name on the phone.
+	Description   string `protobuf:"bytes,10,opt,name=description,proto3" json:"description,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1221,6 +1225,13 @@ func (x *Automation) GetLimits() *SendLimits {
 		return x.Limits
 	}
 	return nil
+}
+
+func (x *Automation) GetDescription() string {
+	if x != nil {
+		return x.Description
+	}
+	return ""
 }
 
 // A test on a field: a group of the pattern, or sender, body, sim.
@@ -3283,7 +3294,7 @@ const file_smsgateway_v1_device_proto_rawDesc = "" +
 	"updated_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x121\n" +
 	"\x06limits\x18\x06 \x01(\v2\x19.smsgateway.v1.SendLimitsR\x06limits\x125\n" +
 	"\ainbound\x18\a \x01(\v2\x1b.smsgateway.v1.InboundRulesR\ainbound\x12;\n" +
-	"\vautomations\x18\b \x03(\v2\x19.smsgateway.v1.AutomationR\vautomations\"\xd9\x02\n" +
+	"\vautomations\x18\b \x03(\v2\x19.smsgateway.v1.AutomationR\vautomations\"\xfb\x02\n" +
 	"\n" +
 	"Automation\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
@@ -3296,7 +3307,9 @@ const file_smsgateway_v1_device_proto_rawDesc = "" +
 	"conditions\x18\a \x03(\v2\".smsgateway.v1.AutomationConditionR\n" +
 	"conditions\x129\n" +
 	"\aactions\x18\b \x03(\v2\x1f.smsgateway.v1.AutomationActionR\aactions\x121\n" +
-	"\x06limits\x18\t \x01(\v2\x19.smsgateway.v1.SendLimitsR\x06limits\"Q\n" +
+	"\x06limits\x18\t \x01(\v2\x19.smsgateway.v1.SendLimitsR\x06limits\x12 \n" +
+	"\vdescription\x18\n" +
+	" \x01(\tR\vdescription\"Q\n" +
 	"\x13AutomationCondition\x12\x14\n" +
 	"\x05field\x18\x01 \x01(\tR\x05field\x12\x0e\n" +
 	"\x02op\x18\x02 \x01(\tR\x02op\x12\x14\n" +

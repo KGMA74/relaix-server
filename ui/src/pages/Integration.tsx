@@ -241,7 +241,9 @@ curl -X DELETE ${base}/jobs/$JOB_ID -H "Authorization: Bearer $RELAIX_API_KEY"`}
             <p>
               Elles tournent sur le téléphone, même hors ligne : un SMS arrive, un motif en extrait des champs, des actions suivent —
               transmettre, répondre par SMS, appeler un webhook, lancer un code USSD. Elles se règlent dans la page Automatisations, ou via{" "}
-              <code>PUT /devices/{"{id}"}/policy</code> (champ <code>automations</code>). Ce qu'elles ont fait :
+              <code>PUT /devices/{"{id}"}/policy</code> (champ <code>automations</code>). <code>GET /automations/library</code> liste les
+              modèles prêts à installer — chacun avec sa description et les valeurs qu'il demande ({"{{url}}"}, {"{{sender}}"}…). Ce
+              qu'elles ont fait :
             </p>
             <Code>{`curl "${base}/automations/runs?deviceId=$DEVICE_ID&limit=20" \\
   -H "Authorization: Bearer $RELAIX_API_KEY"`}</Code>

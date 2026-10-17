@@ -20,6 +20,7 @@ import (
 	"github.com/KGMA74/relaix-server/events"
 	v1 "github.com/KGMA74/relaix-server/gen/smsgateway/v1"
 	"github.com/KGMA74/relaix-server/hub"
+	"github.com/KGMA74/relaix-server/library"
 	"github.com/KGMA74/relaix-server/scheduler"
 	"github.com/KGMA74/relaix-server/store"
 )
@@ -89,6 +90,10 @@ type Options struct {
 	// is all the API tests that do not exercise it need.
 	Events *events.Broker
 
+	// Library is the catalogue of automation templates served at
+	// GET /automations/library. Nil serves the gateway's built-in one.
+	Library library.Source
+
 	// Pinger backs the readiness probe. Nil makes /readyz answer purely on the
 	// process being up.
 	Pinger Pinger
@@ -109,6 +114,9 @@ func (o *Options) withDefaults() {
 	}
 	if o.Router == nil {
 		o.Router = scheduler.OwnDevices{}
+	}
+	if o.Library == nil {
+		o.Library = library.BuiltinSource{}
 	}
 }
 
@@ -147,6 +155,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /inbox", s.handleListInbox)
 	mux.HandleFunc("GET /inbox/{id}", s.handleGetInbound)
 	mux.HandleFunc("GET /automations/runs", s.handleListRuns)
+	mux.HandleFunc("GET /automations/library", s.handleLibrary)
 	mux.HandleFunc("GET /jobs", s.handleListJobs)
 	mux.HandleFunc("GET /jobs/{id}", s.handleGetJob)
 	mux.HandleFunc("GET /jobs/{id}/events", s.handleJobEvents)
