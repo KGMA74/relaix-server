@@ -11,7 +11,7 @@ import { AutomationFlow } from "../components/AutomationFlow";
 import { CopyButton } from "../components/CopyButton";
 import { formatDateTime } from "../lib/format";
 import { Switch } from "@/components/ui/switch";
-import { fieldsOf, jsonBodyError, match, numbersOf, patternError, render, renderBody, renderUssd, unknownFields } from "../lib/automation";
+import { fieldsOf, jsonBodyError, match, numbersOf, patternError, render, renderBody, isDialable, renderUssd, unknownFields } from "../lib/automation";
 import { shortId } from "../lib/format";
 import { cn } from "@/lib/utils";
 
@@ -799,7 +799,7 @@ function Tester({ automation }: { automation: Automation }) {
                   {act.type === "forward" && "Transmis à la passerelle avec ces champs"}
                   {act.type === "reply_sms" && `SMS à ${render(act.to ?? "", result.fields)} : « ${render(act.text ?? "", result.fields)} »`}
                   {act.type === "webhook" && `POST ${act.url}${act.body ? ` — ${renderBody(act.body, result.fields)}` : ""}`}
-                  {act.type === "ussd" && renderUssd(act.code ?? "", result.fields)}
+                  {act.type === "ussd" && <UssdPreview code={renderUssd(act.code ?? "", result.fields)} />}
                 </li>
               ))}
             </ol>
@@ -891,5 +891,15 @@ function SigningSecret({ secret, onRegenerate }: { secret: string; onRegenerate:
         qu'une fois l'automatisation enregistrée.
       </p>
     </div>
+  );
+}
+
+/** A USSD code as the tester fills it, and whether the phone would dial it. */
+function UssdPreview({ code }: { code: string }) {
+  if (isDialable(code)) return <>{code}</>;
+  return (
+    <span className="text-destructive">
+      {code} — non composé : un code USSD ne prend que des chiffres, * et # (montant à décimales ?)
+    </span>
   );
 }

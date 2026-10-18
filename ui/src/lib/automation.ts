@@ -117,10 +117,28 @@ export function render(template: string, fields: Record<string, string>): string
   return template.replace(PLACEHOLDER, (_, name: string) => (name === PIN ? "••••" : (fields[name] ?? "")));
 }
 
-/** Fills a USSD code: "5 000" goes in as 5000, since a code has no spaces. */
+/**
+ * Fills a USSD code as the phone does (AutomationRules.renderUssd): no
+ * spaces, and an amount with zero decimals as a whole number \u2014 "200.0" is
+ * 200, "5 000,00" is 5000. Left in, a decimal point is dropped on the way
+ * and 200.0 reaches the network as 2000.
+ */
 export function renderUssd(template: string, fields: Record<string, string>): string {
-  const compact = Object.fromEntries(Object.entries(fields).map(([k, v]) => [k, v.replace(/[\s\u00a0\u202f]/g, "")]));
+  const compact = Object.fromEntries(
+    Object.entries(fields).map(([k, v]) => {
+      const c = v.replace(/[\s\u00a0\u202f]/g, "");
+      return [k, /^([0-9]+)[.,]0+$/.exec(c)?.[1] ?? c];
+    }),
+  );
   return render(template, compact);
+}
+
+/**
+ * Whether a filled USSD code can be dialled as it is: the phone refuses
+ * anything but digits, * and # (and {pin}) rather than send another amount.
+ */
+export function isDialable(code: string): boolean {
+  return /^[*#]([0-9*#]|\{pin\})*#$/.test(code);
 }
 
 /**
