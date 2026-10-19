@@ -45,15 +45,20 @@ func RenderJSON(template string, fields map[string]string) string {
 		case c == '"':
 			inString = !inString
 		case c == '{':
-			if m := placeholderAt.FindStringSubmatchIndex(template[i:]); m != nil {
-				v := fields[template[i+m[2]:i+m[3]]]
-				if inString {
-					b.WriteString(EscapeJSON(v))
-				} else {
-					b.WriteString(JSONValue(v))
+			if m := tokenAt.FindStringSubmatchIndex(template[i:]); m != nil {
+				// An expression is a number, or null when it cannot be computed.
+				if v, _, ok, isToken := fill(template[i+m[2]:i+m[3]], fields, 2); isToken {
+					switch {
+					case inString:
+						b.WriteString(EscapeJSON(v))
+					case !ok:
+						b.WriteString("null")
+					default:
+						b.WriteString(JSONValue(v))
+					}
+					i += m[1]
+					continue
 				}
-				i += m[1]
-				continue
 			}
 		}
 		b.WriteByte(c)

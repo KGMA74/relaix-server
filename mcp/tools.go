@@ -343,7 +343,10 @@ func testAutomation(_ context.Context, _ *caller, args json.RawMessage) (any, er
 			for k, v := range fields {
 				withPin[k] = v
 			}
-			step["code"] = policy.Render(act.Code, withPin)
+			step["code"] = policy.RenderUSSD(act.Code, withPin)
+			if !policy.IsDialable(step["code"].(string)) {
+				step["dialled"] = "no: not a USSD code once filled in (decimals, or a calculation that cannot be computed) — the phone refuses it"
+			}
 		}
 		actions = append(actions, step)
 	}
@@ -597,7 +600,9 @@ func tool(name, title, desc string, input obj, readOnly, destructive bool) obj {
 var automationSchema = obj{
 	"type": "object",
 	"description": "An automation, run by the phone when an SMS arrives. Templates use {field}: the builtins " +
-		"{sender} {body} {receivedAt} {sim}, and the pattern's named groups.",
+		"{sender} {body} {receivedAt} {sim}, and the pattern's named groups. A template may also compute: " +
+		"{amount * 2}, {amount - 100}, {(amount + fee) * 0.98} — fields read as amounts, + - * / and parentheses; " +
+		"the result has at most two decimals, a whole number in a USSD code, null in a JSON body when it cannot be computed.",
 	"properties": obj{
 		"id":             str("Keep it to replace an existing automation; omit to create one."),
 		"name":           str("1 to 64 characters."),

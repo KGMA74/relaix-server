@@ -11,7 +11,7 @@ import { AutomationFlow } from "../components/AutomationFlow";
 import { CopyButton } from "../components/CopyButton";
 import { formatDateTime } from "../lib/format";
 import { Switch } from "@/components/ui/switch";
-import { fieldsOf, jsonBodyError, match, numbersOf, patternError, render, renderBody, isDialable, renderUssd, unknownFields } from "../lib/automation";
+import { fieldsOf, jsonBodyError, match, numbersOf, patternError, render, renderBody, isDialable, renderUssd, unknownFields, badCalculations } from "../lib/automation";
 import { shortId } from "../lib/format";
 import { cn } from "@/lib/utils";
 
@@ -481,11 +481,13 @@ function AutomationEditor({
       ...unknownFields(act.code, fields, true),
     ];
     if (unknown.length) problems.push(`Action ${i + 1} : champ(s) inconnu(s) ${unknown.map((u) => `{${u}}`).join(", ")}`);
+    const bad = [act.to, act.text, act.body, act.code].flatMap(badCalculations);
+    if (bad.length) problems.push(`Action ${i + 1} : calcul invalide ${bad.map((b) => `{${b}}`).join(", ")} — champs et nombres avec + - * / et parenthèses, ex. {amount * 2}.`);
     if (act.type === "reply_sms" && (!act.to?.trim() || !act.text?.trim())) problems.push(`Action ${i + 1} : destinataire et texte requis.`);
     if (act.type === "webhook" && !/^https?:\/\/[^/]+/.test(act.url ?? "")) problems.push(`Action ${i + 1} : URL http(s) requise.`);
     const bodyError = act.type === "webhook" ? jsonBodyError(act.body, fields) : null;
     if (bodyError) problems.push(`Action ${i + 1} : ${bodyError}`);
-    if (act.type === "ussd" && !/^[*#]([0-9*#+]|\{[A-Za-z][A-Za-z0-9]*\})*#$/.test(act.code ?? "")) {
+    if (act.type === "ussd" && !/^[*#]([0-9*#+]|\{[A-Za-z0-9. ()+*/-]+\})*#$/.test(act.code ?? "")) {
       problems.push(`Action ${i + 1} : code USSD invalide (ex. *144*2*1*{from}*{amount}*{pin}#).`);
     }
     if (!device.capabilities.includes(ACTION_CAPABILITY[act.type])) {
@@ -592,6 +594,9 @@ function AutomationEditor({
               {fields.map((f) => (
                 <code key={f} className="mr-1 rounded bg-muted px-1">{`{${f}}`}</code>
               ))}
+              <br />
+              Calculs possibles : <code className="rounded bg-muted px-1">{"{amount * 2}"}</code>,{" "}
+              <code className="rounded bg-muted px-1">{"{amount - 100}"}</code> (+ - * / et parenthèses) — arrondi à l'entier dans un code USSD.
             </p>
           </div>
           <div className="space-y-2">

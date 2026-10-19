@@ -121,7 +121,6 @@ const (
 )
 
 var (
-	placeholder = regexp.MustCompile(`\{([A-Za-z][A-Za-z0-9]*)\}`)
 	// groupName finds named groups in either spelling RE2 accepts.
 	groupName = regexp.MustCompile(`\(\?P?<([^>]*)>`)
 	fieldName = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9]*$`)
@@ -262,11 +261,17 @@ func Number(s string) (float64, bool) {
 	return f, err == nil
 }
 
-// Render replaces each {name} with its field. A name without a field renders
-// empty: validation already refused unknown names.
+// Render replaces each {name} with its field, and each expression
+// ({amount * 2}) with its result to two decimals (expr.go). A name without a
+// field renders empty: validation already refused unknown names. So does an
+// expression that cannot be computed.
 func Render(template string, fields map[string]string) string {
-	return placeholder.ReplaceAllStringFunc(template, func(m string) string {
-		return fields[m[1:len(m)-1]]
+	return token.ReplaceAllStringFunc(template, func(m string) string {
+		v, _, _, isToken := fill(m[1:len(m)-1], fields, 2)
+		if !isToken {
+			return m
+		}
+		return v
 	})
 }
 
@@ -425,12 +430,24 @@ func validatePattern(pattern, where string, taken []string) error {
 
 func (act Action) validate(where string, fields []string) error {
 	uses := func(name, template string, pin bool) error {
-		for _, m := range placeholder.FindAllStringSubmatch(template, -1) {
+		for _, m := range token.FindAllStringSubmatch(template, -1) {
 			if m[1] == PinField && pin {
 				continue
 			}
-			if !slices.Contains(fields, m[1]) {
-				return invalid("%s.%s: {%s} is not a field of this automation", where, name, m[1])
+			names := []string{m[1]}
+			if isExpression(m[1]) {
+				_, used, err := parseExpr(m[1])
+				if err != nil {
+					return invalid("%s.%s: {%s} is not a calculation: fields and numbers with + - * / and parentheses, e.g. {amount * 2}", where, name, m[1])
+				}
+				names = used
+			} else if !fieldName.MatchString(m[1]) {
+				continue
+			}
+			for _, n := range names {
+				if !slices.Contains(fields, n) {
+					return invalid("%s.%s: {%s} is not a field of this automation", where, name, n)
+				}
 			}
 		}
 		return nil
@@ -442,7 +459,7 @@ func (act Action) validate(where string, fields []string) error {
 		if act.To == "" || act.Text == "" || len([]rune(act.Text)) > maxReplyLen {
 			return invalid("%s: reply_sms needs to and a text of at most %d characters", where, maxReplyLen)
 		}
-		if !placeholder.MatchString(act.To) && !e164.MatchString(act.To) {
+		if !token.MatchString(act.To) && !e164.MatchString(act.To) {
 			return invalid("%s.to: an E.164 number or a field, e.g. {sender}", where)
 		}
 		if err := uses("to", act.To, false); err != nil {
@@ -503,7 +520,7 @@ func (act Action) validate(where string, fields []string) error {
 
 var (
 	e164         = regexp.MustCompile(`^\+[1-9][0-9]{7,14}$`)
-	ussdTemplate = regexp.MustCompile(`^[*#]([0-9*#+]|\{[A-Za-z][A-Za-z0-9]*\})*#$`)
+	ussdTemplate = regexp.MustCompile(`^[*#]([0-9*#+]|\{[A-Za-z0-9. ()+*/-]+\})*#$`)
 )
 
 func automationsToProto(list []Automation) []*v1.Automation {

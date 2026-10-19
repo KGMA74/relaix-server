@@ -22,6 +22,9 @@ type vector struct {
 	JSONTemplate string            `json:"jsonTemplate"`
 	JSONRendered string            `json:"jsonRendered"`
 	Numbers      map[string]string `json:"numbers"`
+	// A USSD code and what the phone dials.
+	USSDTemplate string `json:"ussdTemplate"`
+	USSDRendered string `json:"ussdRendered"`
 }
 
 func TestIsJSONTemplate(t *testing.T) {
@@ -85,6 +88,11 @@ func TestAutomationVectors(t *testing.T) {
 					t.Errorf("json rendered is not JSON: %s", got)
 				}
 			}
+			if v.USSDTemplate != "" {
+				if got := RenderUSSD(v.USSDTemplate, fields); got != v.USSDRendered {
+					t.Errorf("ussd rendered %q, want %q", got, v.USSDRendered)
+				}
+			}
 			if v.Numbers != nil {
 				if got := Numbers(fields); !maps.Equal(got, v.Numbers) {
 					t.Errorf("numbers = %v, want %v", got, v.Numbers)
@@ -122,6 +130,15 @@ func TestAutomationValidation(t *testing.T) {
 		{"reply to a field", func(a *Automation) {
 			a.Actions = []Action{{Type: ActionReplySMS, To: "{sender}", Text: "Merci {amount}"}}
 		}, ""},
+		{"calculation on a field", func(a *Automation) {
+			a.Actions = []Action{{Type: ActionUSSD, Code: "*144*2*1*{from}*{amount * 2}#"}}
+		}, ""},
+		{"calculation on an unknown field", func(a *Automation) {
+			a.Actions = []Action{{Type: ActionReplySMS, To: "{sender}", Text: "{amount * fee}"}}
+		}, "not a field"},
+		{"calculation that does not parse", func(a *Automation) {
+			a.Actions = []Action{{Type: ActionReplySMS, To: "{sender}", Text: "{amount * (2}"}}
+		}, "not a calculation"},
 		{"reply to a bad number", func(a *Automation) { a.Actions = []Action{{Type: ActionReplySMS, To: "70000000", Text: "x"}} }, "E.164"},
 		{"reply with unknown field", func(a *Automation) {
 			a.Actions = []Action{{Type: ActionReplySMS, To: "{sender}", Text: "{total}"}}

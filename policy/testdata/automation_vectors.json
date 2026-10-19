@@ -199,6 +199,79 @@
       "numbers": {
         "balance": "684.62"
       }
+    },
+    {
+      "name": "calculation: text, JSON and USSD from a decimal amount",
+      "automation": {
+        "enabled": true,
+        "senders": [
+          "OrangeMoney"
+        ],
+        "pattern": "Vous avez recu (?<amount>[0-9 .,]+) FCFA de (?<from>[0-9]+)"
+      },
+      "sms": {
+        "sender": "OrangeMoney",
+        "body": "Vous avez recu 200.0 FCFA de 65530101. Solde 1 500 FCFA",
+        "receivedAt": "2026-10-19T08:00:00Z",
+        "sim": 1
+      },
+      "match": true,
+      "fields": {
+        "amount": "200.0",
+        "from": "65530101"
+      },
+      "template": "Frais {amount * 0.02} FCFA, total {(amount + 50) * 2}, tiers {amount / 3}, {amount-from*0} {1.5} {amount}",
+      "rendered": "Frais 4 FCFA, total 500, tiers 66.67, 200 {1.5} 200.0",
+      "jsonTemplate": "{\"double\": {amount * 2}, \"text\": \"{amount / 3}\", \"bad\": {from / (amount - amount)}, \"neg\": {-amount + 50}}",
+      "jsonRendered": "{\"double\": 400, \"text\": \"66.67\", \"bad\": null, \"neg\": -150}",
+      "ussdTemplate": "*144*2*1*{from}*{amount * 2}#",
+      "ussdRendered": "*144*2*1*65530101*400#"
+    },
+    {
+      "name": "calculation: a USSD result is rounded to a whole number, spaces read as an amount",
+      "automation": {
+        "enabled": true,
+        "senders": [
+          "OrangeMoney"
+        ],
+        "pattern": "Vous avez recu (?<amount>[0-9 .,]+) FCFA de (?<from>[0-9]+)"
+      },
+      "sms": {
+        "sender": "OrangeMoney",
+        "body": "Vous avez recu 5 000,50 FCFA de 70123456",
+        "receivedAt": "2026-10-19T08:00:00Z",
+        "sim": 1
+      },
+      "match": true,
+      "fields": {
+        "amount": "5 000,50",
+        "from": "70123456"
+      },
+      "template": "{amount * 2}",
+      "rendered": "10001",
+      "ussdTemplate": "*144*{amount / 3}*{amount}#",
+      "ussdRendered": "*144*1667*5000,50#"
+    },
+    {
+      "name": "calculation: a field that is not a number cannot be computed, and the code is not dialable",
+      "automation": {
+        "enabled": true,
+        "pattern": "de (?<who>[A-Za-z]+)"
+      },
+      "sms": {
+        "sender": "x",
+        "body": "recu de Awa",
+        "receivedAt": "2026-10-19T08:00:00Z",
+        "sim": 1
+      },
+      "match": true,
+      "fields": {
+        "who": "Awa"
+      },
+      "template": "[{who * 2}]",
+      "rendered": "[]",
+      "ussdTemplate": "*144*{who * 2}#",
+      "ussdRendered": "*144*?#"
     }
   ],
   "extractions": [
