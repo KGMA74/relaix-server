@@ -20,15 +20,22 @@ export function fieldsOf(pattern?: string): string[] {
   return out;
 }
 
-/** The pattern as a JS RegExp: (?P<x>) becomes (?<x>), a leading (?i) a flag. */
+/**
+ * The pattern as a JS RegExp: (?P<x>) becomes (?<x>), and leading flag groups
+ * — (?i), (?s), (?is)… as RE2 and Java take them — become flags. (?m) too;
+ * (?U), RE2's ungreedy mode, has no JS equivalent and is refused.
+ */
 export function compile(pattern: string): RegExp {
-  let flags = "";
+  const flags = new Set<string>();
   let p = pattern.replace(/\(\?P</g, "(?<");
-  if (p.startsWith("(?i)")) {
-    flags = "i";
-    p = p.slice(4);
+  for (let m = /^\(\?([imsU]+)\)/.exec(p); m; m = /^\(\?([imsU]+)\)/.exec(p)) {
+    for (const f of m[1] ?? "") {
+      if (f === "U") throw new Error("(?U) n'est pas pris en charge par le testeur");
+      flags.add(f);
+    }
+    p = p.slice(m[0].length);
   }
-  return new RegExp(p, flags);
+  return new RegExp(p, [...flags].join(""));
 }
 
 export function patternError(pattern?: string): string | null {

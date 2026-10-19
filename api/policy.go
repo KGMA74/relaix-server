@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -46,6 +47,15 @@ func (s *Server) handlePutPolicy(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	locks, err := s.locksFor(ctx, id)
+	if err != nil {
+		s.opts.Logger.Error("could not read locks", "device_id", id, "err", err)
+		writeError(w, http.StatusInternalServerError, "internal", "could not store policy")
+		return
+	}
+	if writeLockError(w, policy.CheckLocks(dev.Policy, in, locks)) {
+		return
+	}
 	stored, err := s.store.Devices().SetPolicy(ctx, id, in)
 	switch {
 	case errors.Is(err, store.ErrNotFound):
@@ -57,7 +67,7 @@ func (s *Server) handlePutPolicy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.pushPolicy(r, id, stored, dev.Can(store.CapAutomationSchedule))
+	s.pushPolicy(ctx, id, stored, dev.Can(store.CapAutomationSchedule))
 	s.opts.Logger.Info("device rules updated", "device_id", id, "version", stored.Version)
 	s.opts.Events.Publish(events.Event{Type: events.DeviceUpdated, DeviceID: id.String(), AccountID: dev.AccountID})
 	writeJSON(w, http.StatusOK, stored)
@@ -65,8 +75,8 @@ func (s *Server) handlePutPolicy(w http.ResponseWriter, r *http.Request) {
 
 // pushPolicy sends the stored rules to the phone if it is connected, so the
 // screen on the phone shows them without waiting for a reconnect.
-func (s *Server) pushPolicy(r *http.Request, id uuid.UUID, p policy.Policy, scheduling bool) {
-	err := s.hub.Send(r.Context(), id, &v1.ServerMessage{
+func (s *Server) pushPolicy(ctx context.Context, id uuid.UUID, p policy.Policy, scheduling bool) {
+	err := s.hub.Send(ctx, id, &v1.ServerMessage{
 		MessageId: uuid.NewString(),
 		SentAt:    timestamppb.New(s.opts.Now()),
 		Payload:   &v1.ServerMessage_Policy{Policy: policy.ToProtoFor(p, scheduling)},

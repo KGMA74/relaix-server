@@ -41,6 +41,7 @@ import (
 	"github.com/KGMA74/relaix-server/hub"
 	"github.com/KGMA74/relaix-server/library"
 	"github.com/KGMA74/relaix-server/mcp"
+	"github.com/KGMA74/relaix-server/policy"
 	"github.com/KGMA74/relaix-server/scheduler"
 	"github.com/KGMA74/relaix-server/store"
 	"github.com/KGMA74/relaix-server/store/postgres"
@@ -55,6 +56,10 @@ type Env struct {
 	// the same database through Store.Querier.
 	Store  *postgres.Store
 	Logger *slog.Logger
+	// ReplacePolicy edits a device's rules, past the locks, and pushes them
+	// to the phone: for an extension removing an automation it locked. Usable
+	// once the gateway serves, not inside Extend.
+	ReplacePolicy func(ctx context.Context, device uuid.UUID, edit func(policy.Policy) policy.Policy) (policy.Policy, error)
 }
 
 // Extensions plug into the gateway. Every field is optional: left nil, the
@@ -74,6 +79,9 @@ type Extensions struct {
 	PublicPrefixes []string
 	// Library replaces the built-in catalogue of automation templates.
 	Library library.Source
+	// AutomationLocks says which automations of a device its rules must keep
+	// as they are: neither the API, the MCP nor the phone may change them.
+	AutomationLocks func(ctx context.Context, device uuid.UUID) (policy.Locks, error)
 	// MCPTools are added to the MCP server's own tools.
 	MCPTools []mcp.Tool
 	UIConfig api.UIConfig
@@ -101,9 +109,19 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger, extend Ext
 	defer st.Close()
 	logger.Info("connected to postgres")
 
+	// The API is built after the extensions; their ReplacePolicy reaches it
+	// once it is.
+	var apiServer *api.Server
+	replacePolicy := func(ctx context.Context, device uuid.UUID, edit func(policy.Policy) policy.Policy) (policy.Policy, error) {
+		if apiServer == nil {
+			return policy.Policy{}, errors.New("the gateway is not serving yet")
+		}
+		return apiServer.ReplacePolicy(ctx, device, edit)
+	}
+
 	var ext Extensions
 	if extend != nil {
-		if ext, err = extend(ctx, Env{Config: cfg, Store: st, Logger: logger}); err != nil {
+		if ext, err = extend(ctx, Env{Config: cfg, Store: st, Logger: logger, ReplacePolicy: replacePolicy}); err != nil {
 			return fmt.Errorf("extend: %w", err)
 		}
 	}
@@ -182,6 +200,7 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger, extend Ext
 		Events:            broker,
 		InboundWebhook:    inboundWebhook,
 		OnInbound:         ext.OnInbound,
+		Locks:             ext.AutomationLocks,
 		Logger:            logger,
 	}).WithEnroller(enrollment)
 
@@ -195,23 +214,25 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger, extend Ext
 	if authenticator == nil {
 		authenticator = api.SharedKey(cfg.APIKey)
 	}
+	apiServer = api.New(st, h, enrollment, api.Options{
+		APIKey:         cfg.APIKey,
+		Authenticator:  authenticator,
+		Router:         ext.Router,
+		SendGuard:      ext.SendGuard,
+		Routes:         ext.Routes,
+		PublicPrefixes: ext.PublicPrefixes,
+		UIConfig:       ext.UIConfig,
+		Library:        ext.Library,
+		Locks:          ext.AutomationLocks,
+		PublicURL:      cfg.PublicURL,
+		UI:             dashboard,
+		Events:         broker,
+		Pinger:         st,
+		Logger:         logger,
+	})
 	httpSrv := &http.Server{
-		Addr: cfg.HTTPAddr,
-		Handler: api.New(st, h, enrollment, api.Options{
-			APIKey:         cfg.APIKey,
-			Authenticator:  authenticator,
-			Router:         ext.Router,
-			SendGuard:      ext.SendGuard,
-			Routes:         ext.Routes,
-			PublicPrefixes: ext.PublicPrefixes,
-			UIConfig:       ext.UIConfig,
-			Library:        ext.Library,
-			PublicURL:      cfg.PublicURL,
-			UI:             dashboard,
-			Events:         broker,
-			Pinger:         st,
-			Logger:         logger,
-		}).Handler(),
+		Addr:              cfg.HTTPAddr,
+		Handler:           apiServer.Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 

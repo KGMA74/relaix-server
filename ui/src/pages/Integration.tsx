@@ -515,7 +515,7 @@ function verify(secret, timestamp, rawBody, header) {
               automatisations, avec l'adresse de cette passerelle. La clé reste une variable d'environnement.
             </p>
             <div className="flex flex-wrap items-center gap-2">
-              <button type="button" className="btn-secondary" onClick={() => download("SKILL.md", relaixSkill(origin))}>
+              <button type="button" className="btn-secondary" onClick={() => download("SKILL.md", relaixSkill(origin, { payments }))}>
                 <Download className="size-4" aria-hidden />
                 Télécharger SKILL.md
               </button>
@@ -527,7 +527,7 @@ function verify(secret, timestamp, rawBody, header) {
             <details className="group">
               <summary className="cursor-pointer text-[13px] font-medium underline decoration-foreground/30 underline-offset-4">Voir le fichier</summary>
               <div className="mt-2">
-                <Code>{relaixSkill(origin)}</Code>
+                <Code>{relaixSkill(origin, { payments })}</Code>
               </div>
             </details>
           </Section>

@@ -153,6 +153,8 @@ export const api = {
 
   uiConfig: () => request<{ name: string; features?: string[] }>("GET", "/ui-config"),
   library: () => request<{ templates: AutomationTemplate[] }>("GET", "/automations/library"),
+  /** Automations that cannot be changed here, by device then automation id, with why. */
+  locks: () => request<{ locks: Record<string, Record<string, string>> }>("GET", "/automations/locks"),
   listRuns: (deviceId?: string) =>
     request<{ runs: AutomationRun[] }>("GET", "/automations/runs" + (deviceId ? `?deviceId=${deviceId}` : "")),
 

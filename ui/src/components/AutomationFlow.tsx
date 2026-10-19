@@ -33,20 +33,20 @@ export function AutomationFlow({ automation: a, device }: { automation: Automati
 
   return (
     <ol className="flex flex-col items-stretch" aria-label="Déroulé de l'automatisation">
-      <Step icon={MessageSquareText} kind="Déclencheur" title="Un SMS arrive">
-        <Facts
+      <FlowStep icon={MessageSquareText} kind="Déclencheur" title="Un SMS arrive">
+        <FlowFacts
           rows={[
             ["Expéditeur", a.senders?.length ? a.senders.join(", ") : "n'importe lequel"],
             ["SIM", sim ? `SIM ${sim.slotIndex + 1}${sim.carrier ? ` · ${sim.carrier}` : ""}` : "toutes"],
             ...(limits ? [["Plafond", limits] as [string, string]] : []),
           ]}
         />
-      </Step>
+      </FlowStep>
 
       {a.pattern && (
         <>
-          <Link />
-          <Step icon={Regex} kind="Extraction" title="Le texte correspond au motif">
+          <FlowLink />
+          <FlowStep icon={Regex} kind="Extraction" title="Le texte correspond au motif">
             <code className="block rounded-sm bg-muted px-2 py-1.5 font-mono text-xs break-all">{a.pattern}</code>
             {fields.length > 0 && (
               <div className="mt-2 flex flex-wrap gap-1.5">
@@ -57,14 +57,14 @@ export function AutomationFlow({ automation: a, device }: { automation: Automati
                 ))}
               </div>
             )}
-          </Step>
+          </FlowStep>
         </>
       )}
 
       {a.conditions && a.conditions.length > 0 && (
         <>
-          <Link />
-          <Step icon={Filter} kind="Conditions" title={a.conditions.length > 1 ? "Toutes doivent être vraies" : "Elle doit être vraie"}>
+          <FlowLink />
+          <FlowStep icon={Filter} kind="Conditions" title={a.conditions.length > 1 ? "Toutes doivent être vraies" : "Elle doit être vraie"}>
             <ul className="space-y-1 font-mono text-xs">
               {a.conditions.map((c, i) => (
                 <li key={i}>
@@ -72,7 +72,7 @@ export function AutomationFlow({ automation: a, device }: { automation: Automati
                 </li>
               ))}
             </ul>
-          </Step>
+          </FlowStep>
         </>
       )}
 
@@ -82,10 +82,10 @@ export function AutomationFlow({ automation: a, device }: { automation: Automati
           act.type === "reply_sms" ? `à ${act.to} : « ${act.text} »` : act.type === "webhook" ? act.url : act.type === "ussd" ? act.code : "Dans les SMS reçus et vers le webhook du compte";
         return (
           <Fragment key={i}>
-            <Link label={i > 0 ? "puis" : undefined} />
-            <Step icon={icon} kind={`Action ${i + 1}`} title={label} accent>
+            <FlowLink label={i > 0 ? "puis" : undefined} />
+            <FlowStep icon={icon} kind={`Action ${i + 1}`} title={label} accent>
               {detail && <p className={cn("text-xs break-all", act.type === "forward" ? "text-muted-foreground" : "font-mono")}>{detail}</p>}
-            </Step>
+            </FlowStep>
           </Fragment>
         );
       })}
@@ -93,7 +93,7 @@ export function AutomationFlow({ automation: a, device }: { automation: Automati
   );
 }
 
-function Step({ icon: Icon, kind, title, accent, children }: { icon: LucideIcon; kind: string; title: string; accent?: boolean; children?: ReactNode }) {
+export function FlowStep({ icon: Icon, kind, title, accent, children }: { icon: LucideIcon; kind: string; title: string; accent?: boolean; children?: ReactNode }) {
   return (
     <li className={cn("list-none rounded-md border bg-card p-3", accent && "border-l-[3px] border-l-foreground")}>
       <div className="flex items-center gap-2">
@@ -111,7 +111,7 @@ function Step({ icon: Icon, kind, title, accent, children }: { icon: LucideIcon;
 }
 
 /** The arrow between two steps. */
-function Link({ label }: { label?: string }) {
+export function FlowLink({ label }: { label?: string }) {
   return (
     <li className="flex list-none flex-col items-center py-1 text-muted-foreground" aria-hidden>
       <span className="h-3 w-px bg-border" />
@@ -121,7 +121,7 @@ function Link({ label }: { label?: string }) {
   );
 }
 
-function Facts({ rows }: { rows: [string, string][] }) {
+export function FlowFacts({ rows }: { rows: [string, string][] }) {
   return (
     <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
       {rows.map(([k, v]) => (

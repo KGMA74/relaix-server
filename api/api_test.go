@@ -66,6 +66,7 @@ type harness struct {
 	store    *storetest.Store
 	hub      *fakeHub
 	enroller *devices.Service
+	server   *Server
 	handler  http.Handler
 }
 
@@ -87,7 +88,7 @@ func newHarness(t *testing.T, opts Options) *harness {
 	opts.Logger = logger
 
 	srv := New(st, h, svc, opts)
-	return &harness{store: st, hub: h, enroller: svc, handler: srv.Handler()}
+	return &harness{store: st, hub: h, enroller: svc, server: srv, handler: srv.Handler()}
 }
 
 // do sends a request and returns the recorder.

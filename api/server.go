@@ -94,6 +94,10 @@ type Options struct {
 	// GET /automations/library. Nil serves the gateway's built-in one.
 	Library library.Source
 
+	// Locks says which automations a device's rules must keep as they are;
+	// PUT /devices/{id}/policy refuses to change them. Nil locks none.
+	Locks LockSource
+
 	// Pinger backs the readiness probe. Nil makes /readyz answer purely on the
 	// process being up.
 	Pinger Pinger
@@ -156,6 +160,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /inbox/{id}", s.handleGetInbound)
 	mux.HandleFunc("GET /automations/runs", s.handleListRuns)
 	mux.HandleFunc("GET /automations/library", s.handleLibrary)
+	mux.HandleFunc("GET /automations/locks", s.handleLocks)
 	mux.HandleFunc("GET /jobs", s.handleListJobs)
 	mux.HandleFunc("GET /jobs/{id}", s.handleGetJob)
 	mux.HandleFunc("GET /jobs/{id}/events", s.handleJobEvents)

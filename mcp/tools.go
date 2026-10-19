@@ -32,6 +32,7 @@ var tools = map[string]toolFunc{
 	"test_automation":         testAutomation,
 	"save_automation":         saveAutomation,
 	"delete_automation":       deleteAutomation,
+	"duplicate_automation":    duplicateAutomation,
 	"list_automation_runs":    listRuns,
 	"get_device_rules":        getDeviceRules,
 	"list_automation_library": listLibrary,
@@ -271,6 +272,12 @@ func listAutomations(ctx context.Context, c *caller, args json.RawMessage) (any,
 	if err != nil {
 		return nil, err
 	}
+	var locks struct {
+		Locks map[string]policy.Locks `json:"locks"`
+	}
+	if err := c.do(ctx, "GET", "/automations/locks", nil, &locks); err != nil {
+		return nil, err
+	}
 	out := []map[string]any{}
 	for _, d := range list {
 		if in.DeviceID != "" && d["deviceId"] != in.DeviceID {
@@ -279,10 +286,15 @@ func listAutomations(ctx context.Context, c *caller, args json.RawMessage) (any,
 		var p policy.Policy
 		raw, _ := json.Marshal(d["policy"])
 		_ = json.Unmarshal(raw, &p)
-		out = append(out, map[string]any{
+		entry := map[string]any{
 			"deviceId": d["deviceId"], "label": d["label"], "capabilities": d["capabilities"],
 			"sims": d["sims"], "automations": p.Automations,
-		})
+		}
+		id, _ := d["deviceId"].(string)
+		if l := locks.Locks[id]; len(l) > 0 {
+			entry["locked"] = l
+		}
+		out = append(out, entry)
 	}
 	if in.DeviceID != "" && len(out) == 0 {
 		return nil, errorf("no such device: %s", in.DeviceID)
@@ -429,6 +441,38 @@ func deleteAutomation(ctx context.Context, c *caller, args json.RawMessage) (any
 		return nil, err
 	}
 	return "Deleted.", nil
+}
+
+// duplicateAutomation copies an automation, on its phone or another, under a
+// new id: a locked one included, the copy being the user's own to change.
+func duplicateAutomation(ctx context.Context, c *caller, args json.RawMessage) (any, error) {
+	var in struct {
+		DeviceID     string `json:"deviceId"`
+		AutomationID string `json:"automationId"`
+		ToDeviceID   string `json:"toDeviceId"`
+		Name         string `json:"name"`
+	}
+	if err := decode(args, &in); err != nil {
+		return nil, err
+	}
+	p, err := devicePolicy(ctx, c, in.DeviceID)
+	if err != nil {
+		return nil, err
+	}
+	a, ok := p.Automation(in.AutomationID)
+	if !ok {
+		return nil, errorf("no automation %s on this device", in.AutomationID)
+	}
+	a = policy.Duplicate(a)
+	if strings.TrimSpace(in.Name) != "" {
+		a.Name = strings.TrimSpace(in.Name)
+	}
+	to := in.ToDeviceID
+	if to == "" {
+		to = in.DeviceID
+	}
+	raw, _ := json.Marshal(map[string]any{"deviceId": to, "automation": a})
+	return saveAutomation(ctx, c, raw)
 }
 
 // ---------------------------------------------------------------------------
@@ -710,7 +754,9 @@ var toolDefinitions = []obj{
 		"Jobs per status over a window, and the fleet's counts.",
 		schema(obj{"window": str("Go duration, e.g. 24h or 168h; default 24h.")}), true, false),
 	tool("list_automations", "List automations",
-		"Each phone's automations, with its SIMs and capabilities.",
+		"Each phone's automations, with its SIMs and capabilities. \"locked\" lists those that cannot be changed or "+
+			"deleted, with why — on the hosted platform, those a payment method installed: removing the method removes them. "+
+			"duplicate_automation copies one into an automation of the user's own.",
 		schema(obj{"deviceId": str("One phone; omitted: all.")}), true, false),
 	tool("test_automation", "Test an automation",
 		"Validates an automation as the gateway would and runs it on an example SMS without doing anything: "+
@@ -727,8 +773,17 @@ var toolDefinitions = []obj{
 			"automation_reply_sms). A USSD code with {pin} runs only once the user approves it on the phone.",
 		schema(obj{"deviceId": deviceID, "automation": automationSchema}, "deviceId", "automation"), false, false),
 	tool("delete_automation", "Delete an automation",
-		"Removes an automation from a phone.",
+		"Removes an automation from a phone. A locked one (list_automations) is refused.",
 		schema(obj{"deviceId": deviceID, "automationId": str("The automation's id.")}, "deviceId", "automationId"), false, true),
+	tool("duplicate_automation", "Duplicate an automation",
+		"Copies an automation under a new id, disabled, named \"… (copie)\" unless a name is given — on the same phone "+
+			"or another. A locked automation may be copied: the copy is unlocked. Webhooks get a new secret.",
+		schema(obj{
+			"deviceId":     deviceID,
+			"automationId": str("The automation to copy."),
+			"toDeviceId":   str("The phone to copy it to; omitted: the same one."),
+			"name":         str("The copy's name."),
+		}, "deviceId", "automationId"), false, false),
 	tool("list_automation_runs", "List automation runs",
 		"What the phones' automations did, newest first: each step, and USSD responses.",
 		schema(obj{

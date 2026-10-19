@@ -60,7 +60,7 @@ func requiredScopes(r *http.Request) []string {
 		return []string{ScopeMessagesRead}
 	case get && (under("/inbox") || path == "/automations/runs"):
 		return []string{ScopeInboxRead}
-	case get && (path == "/devices" || path == "/countries" || path == "/automations/library"):
+	case get && (path == "/devices" || path == "/countries" || path == "/automations/library" || path == "/automations/locks"):
 		return []string{ScopeDevicesRead}
 	case under("/devices") || path == "/admin/devices/enroll-token":
 		return []string{ScopeDevicesWrite}

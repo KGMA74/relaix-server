@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, Copy, FlaskConical, Loader2, Pencil, Plus, RefreshCw, Trash2, Workflow, X } from "lucide-react";
+import { Check, Copy, CopyPlus, FlaskConical, Loader2, Lock, Pencil, Plus, RefreshCw, Trash2, Workflow, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
@@ -59,6 +59,10 @@ export function AutomationsPage() {
   const deviceId = params.get("deviceId") ?? list[0]?.deviceId ?? "";
   const device = list.find((d) => d.deviceId === deviceId);
   const automations = device?.policy.automations ?? [];
+  // Automations another feature owns (a payment method, on the cloud): shown
+  // with a padlock, changed and removed only through it.
+  const locksQuery = useQuery({ queryKey: ["automation-locks"], queryFn: api.locks });
+  const locks = locksQuery.data?.locks[deviceId] ?? {};
 
   const [editing, setEditing] = useState<Automation | null>(null);
   const [removing, setRemoving] = useState<Automation | null>(null);
@@ -80,6 +84,7 @@ export function AutomationsPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["devices"] });
+      queryClient.invalidateQueries({ queryKey: ["automation-locks"] });
       toast.success("Automatisations enregistrées", {
         description: device?.connected ? "Transmises au téléphone." : "Le téléphone les recevra à sa reconnexion.",
       });
@@ -98,6 +103,9 @@ export function AutomationsPage() {
       { ...a, actions: a.actions.map((act) => (act.type === "webhook" && !act.secret ? { ...act, secret: webhookSecret() } : act)) },
     ]);
   const toggle = (a: Automation, enabled: boolean) => save.mutate(automations.map((x) => (x.id === a.id ? { ...x, enabled } : x)));
+  // A copy is the user's own, locked original or not: opened in the editor,
+  // disabled so the two do not both act on the same SMS.
+  const duplicate = (a: Automation) => setEditing(duplicateOf(a));
 
   return (
     <>
@@ -147,6 +155,9 @@ export function AutomationsPage() {
             <CardHeader
               title={
                 <span className="flex items-center gap-2">
+                  {locks[a.id] && (
+                    <Lock className="size-3.5 shrink-0 text-muted-foreground" aria-label="Verrouillée" />
+                  )}
                   {a.name}
                   {!a.enabled && <Pill tone="neutral">désactivée</Pill>}
                 </span>
@@ -155,20 +166,28 @@ export function AutomationsPage() {
                 <>
                   {a.description && <span className="mb-0.5 block text-[13px] text-foreground/80">{a.description}</span>}
                   {summary(a, device!)}
+                  {locks[a.id] && <span className="mt-1 block text-xs">{lockNote(locks[a.id])}</span>}
                 </>
               }
               actions={
                 <div className="flex items-center gap-2">
-                  <Switch checked={!!a.enabled} onCheckedChange={(on) => toggle(a, on)} aria-label="Activer" />
+                  <Switch checked={!!a.enabled} onCheckedChange={(on) => toggle(a, on)} disabled={!!locks[a.id]} aria-label="Activer" />
                   <button className="btn-secondary" onClick={() => setViewing(a)} aria-label="Voir en schéma" title="Voir en schéma">
                     <Workflow className="size-4" aria-hidden />
                   </button>
-                  <button className="btn-secondary" onClick={() => setEditing(a)} aria-label="Modifier">
-                    <Pencil className="size-4" aria-hidden />
+                  <button className="btn-secondary" onClick={() => duplicate(a)} aria-label="Dupliquer" title="Dupliquer">
+                    <CopyPlus className="size-4" aria-hidden />
                   </button>
-                  <button className="btn-secondary" onClick={() => setRemoving(a)} aria-label="Supprimer">
-                    <Trash2 className="size-4" aria-hidden />
-                  </button>
+                  {!locks[a.id] && (
+                    <>
+                      <button className="btn-secondary" onClick={() => setEditing(a)} aria-label="Modifier" title="Modifier">
+                        <Pencil className="size-4" aria-hidden />
+                      </button>
+                      <button className="btn-secondary" onClick={() => setRemoving(a)} aria-label="Supprimer" title="Supprimer">
+                        <Trash2 className="size-4" aria-hidden />
+                      </button>
+                    </>
+                  )}
                 </div>
               }
             />
@@ -210,18 +229,32 @@ export function AutomationsPage() {
       {viewing && device && (
         <Modal label={viewing.name} description={viewing.description || "Ce que fait le téléphone quand un SMS arrive."} onClose={() => setViewing(null)}>
           <AutomationFlow automation={viewing} device={device} />
+          {locks[viewing.id] && <p className="mt-3 text-xs text-muted-foreground">{lockNote(locks[viewing.id])}</p>}
           <ModalActions>
             <button
               type="button"
               className="btn-secondary"
               onClick={() => {
-                setEditing(viewing);
+                duplicate(viewing);
                 setViewing(null);
               }}
             >
-              <Pencil className="size-4" aria-hidden />
-              Modifier
+              <CopyPlus className="size-4" aria-hidden />
+              Dupliquer
             </button>
+            {!locks[viewing.id] && (
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => {
+                  setEditing(viewing);
+                  setViewing(null);
+                }}
+              >
+                <Pencil className="size-4" aria-hidden />
+                Modifier
+              </button>
+            )}
           </ModalActions>
         </Modal>
       )}
@@ -240,6 +273,27 @@ export function AutomationsPage() {
       )}
     </>
   );
+}
+
+/** Why an automation is locked, said for the dashboard. */
+function lockNote(why: string | undefined): string {
+  if (!why) return "";
+  const method = /payment method "([^"]*)"/.exec(why)?.[1];
+  return method
+    ? `Verrouillée : installée par le moyen de paiement « ${method} ». Supprimez le moyen (page Paiements) pour la retirer ; dupliquez-la pour en faire une à vous.`
+    : `Verrouillée : ${why}`;
+}
+
+/** A copy under no id (the gateway gives one), disabled, named as a copy; webhooks get a new secret. */
+function duplicateOf(a: Automation): Automation {
+  const copy: Automation = structuredClone(a);
+  return {
+    ...copy,
+    id: "",
+    enabled: false,
+    name: `${a.name} (copie)`.slice(0, 64),
+    actions: copy.actions.map((act) => (act.type === "webhook" ? { ...act, secret: webhookSecret() } : act)),
+  };
 }
 
 /**

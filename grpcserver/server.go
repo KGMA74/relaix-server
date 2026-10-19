@@ -59,6 +59,10 @@ type Options struct {
 	// not block for long.
 	OnInbound func(ctx context.Context, m *store.InboundMessage)
 
+	// Locks says which automations rules edited on the phone must keep as
+	// they are; an edit changing one is refused like an invalid one.
+	Locks func(ctx context.Context, device uuid.UUID) (policy.Locks, error)
+
 	Now    func() time.Time
 	Logger *slog.Logger
 }
@@ -385,7 +389,14 @@ func (s *Server) onPolicyUpdate(ctx context.Context, device *store.Device, u *v1
 	if !device.Can(store.CapAutomationSchedule) {
 		proposed = policy.KeepSchedules(proposed, current)
 	}
-	if err := policy.Validate(proposed); err != nil {
+	err := policy.Validate(proposed)
+	if err == nil && s.opts.Locks != nil {
+		var locks policy.Locks
+		if locks, err = s.opts.Locks(ctx, device.ID); err == nil {
+			err = policy.CheckLocks(current, proposed, locks)
+		}
+	}
+	if err != nil {
 		log.Warn("rejected rules edited on the device", "err", err)
 		if d, err := s.store.Devices().Get(ctx, device.ID); err == nil {
 			current = d.Policy
