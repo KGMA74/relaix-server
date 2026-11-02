@@ -85,6 +85,10 @@ type Options struct {
 	// out entirely, which is what the API tests want: they exercise the API,
 	// not whatever front-end build happens to be on disk.
 	UI fs.FS
+	// UIConnectSrc adds origins the dashboard may call, on top of its own: a
+	// single sign-on provider's, say. Origins only (https://host); anything
+	// else is ignored.
+	UIConnectSrc []string
 
 	// Events feeds GET /events. Nil leaves the stream open but silent, which
 	// is all the API tests that do not exercise it need.
