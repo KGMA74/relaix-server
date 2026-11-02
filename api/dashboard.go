@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io/fs"
 	"net/http"
+	"net/url"
 	"path"
 	"strings"
 	"time"
@@ -43,9 +44,10 @@ func (s *Server) dashboard(fsys fs.FS) http.Handler {
 	// The embedded files have no meaningful mtime; the process start stands in,
 	// so a conditional request still revalidates after a redeploy.
 	started := s.opts.Now()
+	csp := dashboardPolicy(s.opts.UIConnectSrc)
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Security-Policy", dashboardCSP)
+		w.Header().Set("Content-Security-Policy", csp)
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Referrer-Policy", "no-referrer")
 
@@ -91,4 +93,25 @@ func (s *Server) dashboard(fsys fs.FS) http.Handler {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		http.ServeContent(w, r, "index.html", started.Truncate(time.Second), bytes.NewReader(index))
 	})
+}
+
+// dashboardPolicy is dashboardCSP with extra origins the page may connect to.
+// Only plain origins are taken (scheme://host[:port], https, or http on
+// localhost): a value that could add a directive or a wildcard is dropped.
+func dashboardPolicy(extra []string) string {
+	var ok []string
+	for _, o := range extra {
+		u, err := url.Parse(o)
+		if err != nil || u.Host == "" || u.Path != "" || u.RawQuery != "" || u.User != nil || strings.ContainsAny(o, " ;,*'\"") {
+			continue
+		}
+		if u.Scheme != "https" && !(u.Scheme == "http" && (u.Hostname() == "localhost" || u.Hostname() == "127.0.0.1")) {
+			continue
+		}
+		ok = append(ok, u.Scheme+"://"+u.Host)
+	}
+	if len(ok) == 0 {
+		return dashboardCSP
+	}
+	return strings.Replace(dashboardCSP, "connect-src 'self'", "connect-src 'self' "+strings.Join(ok, " "), 1)
 }

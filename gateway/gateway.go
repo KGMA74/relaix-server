@@ -87,6 +87,8 @@ type Extensions struct {
 	UIConfig api.UIConfig
 	// UI replaces the built-in dashboard.
 	UI fs.FS
+	// UIConnectSrc: see api.Options.
+	UIConnectSrc []string
 }
 
 // Extend builds the extensions once the database is ready, before anything
@@ -226,6 +228,7 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger, extend Ext
 		Locks:          ext.AutomationLocks,
 		PublicURL:      cfg.PublicURL,
 		UI:             dashboard,
+		UIConnectSrc:   ext.UIConnectSrc,
 		Events:         broker,
 		Pinger:         st,
 		Logger:         logger,

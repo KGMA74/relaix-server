@@ -115,3 +115,22 @@ func TestNoDashboardWithoutUI(t *testing.T) {
 		t.Errorf("/ui/ with no UI configured: status %d, want 404", rec.Code)
 	}
 }
+
+func TestDashboardConnectSrcTakesOnlyPlainOrigins(t *testing.T) {
+	h := newHarness(t, Options{
+		APIKey: testAPIKey, UI: dashboardFS(),
+		UIConnectSrc: []string{"https://auth.example.com", "https://evil.example; script-src *", "*", "http://example.com", "https://a.example/path"},
+	})
+	csp := get(h.handler, "/ui/").Header().Get("Content-Security-Policy")
+	if !strings.Contains(csp, "connect-src 'self' https://auth.example.com;") {
+		t.Errorf("CSP = %q, want the provider's origin allowed", csp)
+	}
+	for _, bad := range []string{"evil", "script-src", "http://example.com", "/path", " * "} {
+		if strings.Contains(csp, bad) {
+			t.Errorf("CSP = %q, must not contain %q", csp, bad)
+		}
+	}
+	if got := get(newHarness(t, Options{APIKey: testAPIKey, UI: dashboardFS()}).handler, "/ui/").Header().Get("Content-Security-Policy"); got != dashboardCSP {
+		t.Errorf("default CSP changed: %q", got)
+	}
+}
